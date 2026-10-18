@@ -1,0 +1,40 @@
+name: Yomi iOS CI/CD
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build & Package Yomi
+    runs-on: macos-14
+
+    steps:
+    - name: Checkout Codebase
+      uses: actions/checkout@v4
+
+    - name: Select Xcode Version
+      run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+    - name: Run Swift Unit Tests
+      run: swift test -v
+
+    - name: Build Release Frameworks
+      run: swift build -c release
+
+    - name: Stage Build Artifacts
+      run: |
+        mkdir -p build_output
+        cp -R .build/release/* build_output/ 2>/dev/null || true
+        # Clean out temporary build objects to keep artifact lightweight
+        rm -rf build_output/*.build build_output/*.dSYM build_output/*.o 2>/dev/null || true
+
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: Yomi-Release-macOS-iOS
+        path: build_output/
+        retention-days: 14
