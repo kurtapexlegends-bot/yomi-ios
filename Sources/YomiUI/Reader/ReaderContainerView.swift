@@ -236,4 +236,11 @@ struct ReaderBridgeView: UIViewControllerRepresentable {
         }
     }
 }
+#else
+public struct ReaderContainerView: View {
+    public init(manga: Manga, chapter: Chapter) {}
+    public var body: some View {
+        Text("Reader is only supported on iOS")
+    }
+}
 #endif

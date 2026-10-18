@@ -101,7 +101,9 @@ public struct ExtensionStoreView: View {
                 }
             }
         }
+        #if os(iOS)
         .listStyle(.insetGrouped)
+        #endif
         .alert("Add Extension Repository", isPresented: $isShowingAddRepoAlert) {
             TextField("https://raw.githubusercontent.com/.../index.json", text: $newRepoURL)
             Button("Add") {

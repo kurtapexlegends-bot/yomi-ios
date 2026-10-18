@@ -33,7 +33,9 @@ public struct DownloadsView: View {
                             }
                         }
                     }
+                    #if os(iOS)
                     .listStyle(.insetGrouped)
+                    #endif
                 }
             }
             .navigationTitle("Downloads")
@@ -72,7 +74,7 @@ struct DownloadJobRow: View {
                 case .completed:
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.green)
-                case .failed(let err):
+                case .failed:
                     Text("Failed")
                         .font(.caption.bold())
                         .foregroundStyle(.red)

@@ -160,9 +160,15 @@ public struct MangaDetailView: View {
         .onAppear {
             loadChapters()
         }
+        #if os(iOS)
         .fullScreenCover(item: $activeChapterForReading) { chapter in
             ReaderContainerView(manga: manga, chapter: chapter)
         }
+        #else
+        .sheet(item: $activeChapterForReading) { chapter in
+            ReaderContainerView(manga: manga, chapter: chapter)
+        }
+        #endif
     }
 
     private func loadChapters() {
