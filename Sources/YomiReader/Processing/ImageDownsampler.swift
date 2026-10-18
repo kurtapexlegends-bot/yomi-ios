@@ -54,4 +54,9 @@ public final class ImageDownsampler: @unchecked Sendable {
         memoryCache.removeAllObjects()
     }
 }
+#else
+public final class ImageDownsampler: @unchecked Sendable {
+    public static let shared = ImageDownsampler()
+    public func purgeMemory() {}
+}
 #endif
