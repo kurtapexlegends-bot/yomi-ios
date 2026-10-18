@@ -49,7 +49,7 @@ public final class JSExtension: SourceProtocol, @unchecked Sendable {
                     """
                     
                     guard let promise = context.evaluateScript(wrapper) else {
-                        continuation.resume(throwing: YomiError.parsingError("Failed to evaluate script wrapper"))
+                        continuation.resume(throwing: YomiError.jsonParsingError("Failed to evaluate script wrapper"))
                         return
                     }
 
@@ -230,8 +230,8 @@ public final class JSExtension: SourceProtocol, @unchecked Sendable {
                 sourceId: manifest.id,
                 url: url,
                 title: title,
-                thumbnailUrl: thumb,
-                status: .unknown
+                status: .unknown,
+                thumbnailUrl: thumb
             )
         }
         let hasNext = dict["hasNextPage"] as? Bool ?? false

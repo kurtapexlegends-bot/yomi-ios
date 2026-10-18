@@ -224,8 +224,8 @@ public final class MangaDexSource: SourceProtocol, Sendable {
                 sourceId: Self.sourceId,
                 url: mangaId,
                 title: title,
-                thumbnailUrl: coverUrl,
-                status: .unknown
+                status: .unknown,
+                thumbnailUrl: coverUrl
             )
         }
 
