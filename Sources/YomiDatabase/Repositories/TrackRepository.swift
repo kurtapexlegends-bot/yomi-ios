@@ -49,7 +49,7 @@ public final class TrackRepository: Sendable {
     /// Deletes a tracking link.
     public func deleteTrack(id: Int64) async throws {
         try await dbManager.write { db in
-            _ = try TrackRecord.deleteOne(db, id: id)
+            _ = try TrackRecord.deleteOne(db, key: id)
         }
     }
 }

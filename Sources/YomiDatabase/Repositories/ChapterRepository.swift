@@ -23,7 +23,7 @@ public final class ChapterRepository: Sendable {
     /// Fetches a specific chapter by primary key.
     public func getChapter(id: Int64) async throws -> Chapter? {
         try await dbManager.read { db in
-            try ChapterRecord.fetchOne(db, id: id)?.toDomain()
+            try ChapterRecord.fetchOne(db, key: id)?.toDomain()
         }
     }
 

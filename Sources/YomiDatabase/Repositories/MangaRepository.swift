@@ -12,7 +12,7 @@ public final class MangaRepository: Sendable {
     /// Fetches a single manga by its local primary key.
     public func getManga(id: Int64) async throws -> Manga? {
         try await dbManager.read { db in
-            try MangaRecord.fetchOne(db, id: id)?.toDomain()
+            try MangaRecord.fetchOne(db, key: id)?.toDomain()
         }
     }
 
@@ -120,7 +120,7 @@ public final class MangaRepository: Sendable {
     /// Deletes a manga and its cascading chapters from disk.
     public func delete(id: Int64) async throws {
         try await dbManager.write { db in
-            _ = try MangaRecord.deleteOne(db, id: id)
+            _ = try MangaRecord.deleteOne(db, key: id)
         }
     }
 }

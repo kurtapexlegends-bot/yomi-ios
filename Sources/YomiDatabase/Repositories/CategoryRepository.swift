@@ -41,7 +41,7 @@ public final class CategoryRepository: Sendable {
     /// Deletes a category and unbinds its relations (does not delete manga).
     public func deleteCategory(id: Int64) async throws {
         try await dbManager.write { db in
-            _ = try CategoryRecord.deleteOne(db, id: id)
+            _ = try CategoryRecord.deleteOne(db, key: id)
         }
     }
 
