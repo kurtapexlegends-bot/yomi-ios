@@ -1,5 +1,7 @@
 import Foundation
+#if os(iOS)
 import BackgroundTasks
+#endif
 import UserNotifications
 import YomiCore
 import YomiDatabase
@@ -20,14 +22,17 @@ public final class LibraryUpdateScheduler: @unchecked Sendable {
 
     /// Registers the background task identifier with iOS BGTaskScheduler.
     public func registerBackgroundTask() {
+        #if os(iOS)
         BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.taskIdentifier, using: nil) { task in
             guard let appRefreshTask = task as? BGAppRefreshTask else { return }
             self.handleAppRefresh(task: appRefreshTask)
         }
+        #endif
     }
 
     /// Schedules the next background library refresh (typically after 6 to 12 hours).
     public func scheduleNextLibraryRefresh() {
+        #if os(iOS)
         let request = BGAppRefreshTaskRequest(identifier: Self.taskIdentifier)
         request.earliestBeginDate = Date(timeIntervalSinceNow: 6 * 3600) // 6 hours
 
@@ -36,8 +41,10 @@ public final class LibraryUpdateScheduler: @unchecked Sendable {
         } catch {
             print("[LibraryUpdateScheduler] Failed to submit background refresh: \(error)")
         }
+        #endif
     }
 
+    #if os(iOS)
     private func handleAppRefresh(task: BGAppRefreshTask) {
         scheduleNextLibraryRefresh()
 
@@ -53,6 +60,7 @@ public final class LibraryUpdateScheduler: @unchecked Sendable {
             task.setTaskCompleted(success: success)
         }
     }
+    #endif
 
     private func executeLibraryUpdate() async -> Bool {
         do {
