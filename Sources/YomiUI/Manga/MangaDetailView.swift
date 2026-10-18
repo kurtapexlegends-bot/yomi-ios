@@ -136,7 +136,9 @@ public struct MangaDetailView: View {
                 }
             }
         }
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {

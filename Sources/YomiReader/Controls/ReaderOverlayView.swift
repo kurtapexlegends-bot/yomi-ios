@@ -186,7 +186,9 @@ public struct ReaderSettingsSheet: View {
                 }
             }
             .navigationTitle("Reader Settings")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
         }
     }
 }

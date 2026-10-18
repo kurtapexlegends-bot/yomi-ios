@@ -17,8 +17,11 @@ public enum CBZArchiver {
             try fileManager.removeItem(at: destinationURL)
         }
 
-        guard let archive = Archive(url: destinationURL, accessMode: .create) else {
-            throw YomiError.storageError("Failed to initialize CBZ archive at \(destinationURL.path)")
+        let archive: Archive
+        do {
+            archive = try Archive(url: destinationURL, accessMode: .create)
+        } catch {
+            throw YomiError.storageError("Failed to initialize CBZ archive at \(destinationURL.path): \(error.localizedDescription)")
         }
 
         // Generate ComicInfo.xml
@@ -36,24 +39,33 @@ public enum CBZArchiver {
         """
 
         if let xmlData = comicInfoXML.data(using: .utf8) {
-            try archive.addEntry(with: "ComicInfo.xml", type: .file, uncompressedSize: Int64(xmlData.count), compressionMethod: .deflate) { position, size in
-                xmlData.subdata(in: Int(position)..<Int(position + size))
+            let count = UInt32(xmlData.count)
+            try archive.addEntry(with: "ComicInfo.xml", type: .file, uncompressedSize: count, compressionMethod: .deflate) { position, size in
+                let start = Int(position)
+                let length = Int(size)
+                return xmlData.subdata(in: start..<(start + length))
             }
         }
 
         // Add page image files
         for (index, data) in pageDataList.enumerated() {
             let fileName = String(format: "%03d.jpg", index)
-            try archive.addEntry(with: fileName, type: .file, uncompressedSize: Int64(data.count), compressionMethod: .none) { position, size in
-                data.subdata(in: Int(position)..<Int(position + size))
+            let count = UInt32(data.count)
+            try archive.addEntry(with: fileName, type: .file, uncompressedSize: count, compressionMethod: .none) { position, size in
+                let start = Int(position)
+                let length = Int(size)
+                return data.subdata(in: start..<(start + length))
             }
         }
     }
 
     /// Reads all page image entries from an existing .cbz archive in alphabetical order.
     public static func readCBZPages(from archiveURL: URL) throws -> [ReaderPage] {
-        guard let archive = Archive(url: archiveURL, accessMode: .read) else {
-            throw YomiError.storageError("Failed to open CBZ archive at \(archiveURL.path)")
+        let archive: Archive
+        do {
+            archive = try Archive(url: archiveURL, accessMode: .read)
+        } catch {
+            throw YomiError.storageError("Failed to open CBZ archive at \(archiveURL.path): \(error.localizedDescription)")
         }
 
         let imageEntries = archive.filter { entry in
@@ -73,8 +85,14 @@ public enum CBZArchiver {
 
     /// Extracts raw image data for a specific entry path inside a .cbz archive.
     public static func extractData(from archiveURL: URL, entryPath: String) throws -> Data {
-        guard let archive = Archive(url: archiveURL, accessMode: .read),
-              let entry = archive[entryPath] else {
+        let archive: Archive
+        do {
+            archive = try Archive(url: archiveURL, accessMode: .read)
+        } catch {
+            throw YomiError.storageError("Failed to read CBZ archive: \(error.localizedDescription)")
+        }
+
+        guard let entry = archive[entryPath] else {
             throw YomiError.storageError("Entry not found in CBZ: \(entryPath)")
         }
 

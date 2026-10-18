@@ -126,7 +126,9 @@ struct CloudflareSolverSheet: View {
                 }
             }
             .navigationTitle("Cloudflare Verification")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") {
