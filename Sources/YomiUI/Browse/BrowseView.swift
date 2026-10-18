@@ -7,7 +7,7 @@ import YomiDatabase
 public struct BrowseView: View {
     @State private var selectedTab: Int = 0 // 0 = Sources, 1 = Extension Store
     @State private var sources: [any SourceProtocol] = []
-    @State private var selectedSourceForExploration: (any SourceProtocol)?
+    @State private var selectedSourceId: Int64?
     @State private var cloudflareSolver = CloudflareSolver.shared
 
     private let extensionManager = ExtensionManager.shared
@@ -27,7 +27,7 @@ public struct BrowseView: View {
 
                 if selectedTab == 0 {
                     SourcesListView(sources: sources) { source in
-                        selectedSourceForExploration = source
+                        selectedSourceId = source.manifest.id
                     }
                 } else {
                     ExtensionStoreView()
@@ -37,8 +37,13 @@ public struct BrowseView: View {
             .onAppear {
                 sources = extensionManager.installedSources
             }
-            .navigationDestination(item: $selectedSourceForExploration) { source in
-                SourceExplorationView(source: source)
+            .navigationDestination(isPresented: Binding(
+                get: { selectedSourceId != nil },
+                set: { if !$0 { selectedSourceId = nil } }
+            )) {
+                if let id = selectedSourceId, let source = extensionManager.getSource(id: id) {
+                    SourceExplorationView(source: source)
+                }
             }
             .sheet(isPresented: $cloudflareSolver.isPresentingSolverSheet) {
                 CloudflareSolverSheet()
