@@ -144,6 +144,7 @@ struct CloudflareSolverSheet: View {
     }
 }
 
+#if canImport(UIKit)
 struct CloudflareWebView: UIViewRepresentable {
     let url: URL
 
@@ -160,3 +161,11 @@ struct CloudflareWebView: UIViewRepresentable {
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
+#else
+struct CloudflareWebView: View {
+    let url: URL
+    var body: some View {
+        Text("Cloudflare Solver")
+    }
+}
+#endif

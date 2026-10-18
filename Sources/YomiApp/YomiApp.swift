@@ -7,7 +7,9 @@ import YomiSync
 
 @main
 public struct YomiApp: App {
+#if canImport(UIKit)
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+#endif
     @Environment(\.scenePhase) private var scenePhase
 
     private let biometricManager = BiometricSecurityManager.shared

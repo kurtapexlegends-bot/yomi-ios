@@ -1,6 +1,8 @@
 import Foundation
-import UIKit
 import CoreGraphics
+
+#if canImport(UIKit)
+import UIKit
 
 /// Algorithms for detecting and removing empty whitespace or dark scan borders from manga pages.
 public enum AutocropProcessor {
@@ -34,7 +36,6 @@ public enum AutocropProcessor {
         context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
 
         func isBorderPixel(r: UInt8, g: UInt8, b: UInt8) -> Bool {
-            // White border check (all channels > 240) or pure black letterbox (all channels < 15)
             let isWhite = r > 240 && g > 240 && b > 240
             let isBlack = r < 15 && g < 15 && b < 15
             return isWhite || isBlack
@@ -42,7 +43,7 @@ public enum AutocropProcessor {
 
         func isRowEmpty(_ y: Int) -> Bool {
             let rowOffset = y * bytesPerRow
-            for x in stride(from: 0, to: width, by: 4) { // Sample every 4th pixel for performance
+            for x in stride(from: 0, to: width, by: 4) {
                 let offset = rowOffset + (x * bytesPerPixel)
                 let r = rawData[offset]
                 let g = rawData[offset + 1]
@@ -67,25 +68,21 @@ public enum AutocropProcessor {
             return true
         }
 
-        // Scan from top
         var top = 0
         while top < height / 4 && isRowEmpty(top) {
             top += 1
         }
 
-        // Scan from bottom
         var bottom = height - 1
         while bottom > (height * 3) / 4 && isRowEmpty(bottom) {
             bottom -= 1
         }
 
-        // Scan from left
         var left = 0
         while left < width / 4 && isColEmpty(left, top: top, bottom: bottom) {
             left += 1
         }
 
-        // Scan from right
         var right = width - 1
         while right > (width * 3) / 4 && isColEmpty(right, top: top, bottom: bottom) {
             right -= 1
@@ -94,7 +91,6 @@ public enum AutocropProcessor {
         let cropWidth = right - left
         let cropHeight = bottom - top
 
-        // If at least 5% border was cropped and the result is valid
         if cropWidth > width / 2 && cropHeight > height / 2 && (left > 2 || right < width - 3 || top > 2 || bottom < height - 3) {
             let cropRect = CGRect(x: left, y: top, width: cropWidth, height: cropHeight)
             if let croppedCG = cgImage.cropping(to: cropRect) {
@@ -105,3 +101,4 @@ public enum AutocropProcessor {
         return image
     }
 }
+#endif

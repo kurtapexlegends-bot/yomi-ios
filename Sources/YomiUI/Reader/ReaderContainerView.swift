@@ -6,6 +6,9 @@ import YomiExtensions
 import YomiReader
 import YomiSync
 
+#if canImport(UIKit)
+import UIKit
+
 public struct ReaderContainerView: View {
     public let manga: Manga
     @State public var chapter: Chapter
@@ -233,3 +236,4 @@ struct ReaderBridgeView: UIViewControllerRepresentable {
         }
     }
 }
+#endif

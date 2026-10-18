@@ -1,6 +1,9 @@
 import Foundation
-import UIKit
+import CoreGraphics
 import YomiCore
+
+#if canImport(UIKit)
+import UIKit
 
 public final class ReaderCollectionViewCell: UICollectionViewCell {
     public static let reuseIdentifier = "ReaderCollectionViewCell"
@@ -111,3 +114,4 @@ public final class ReaderCollectionViewCell: UICollectionViewCell {
         onRetry?()
     }
 }
+#endif

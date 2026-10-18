@@ -1,6 +1,8 @@
 import Foundation
-import UIKit
 import CoreGraphics
+
+#if canImport(UIKit)
+import UIKit
 
 /// CATiledLayer-backed view that draws image chunks on demand to eliminate large bitmap RAM spikes.
 public final class TiledImageView: UIView {
@@ -138,3 +140,4 @@ public final class ZoomablePageScrollView: UIScrollView, UIScrollViewDelegate {
         }
     }
 }
+#endif

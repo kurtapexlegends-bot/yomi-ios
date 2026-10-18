@@ -1,5 +1,8 @@
 import Foundation
+import CoreGraphics
+#if canImport(UIKit)
 import UIKit
+#endif
 
 public enum TapZoneLayout: Int, Codable, Sendable, CaseIterable {
     case leftRight = 0

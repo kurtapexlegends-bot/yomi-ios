@@ -1,6 +1,9 @@
 import Foundation
-import UIKit
+import CoreGraphics
 import YomiCore
+
+#if canImport(UIKit)
+import UIKit
 
 public protocol ReaderViewControllerDelegate: AnyObject {
     func readerViewController(_ controller: ReaderViewController, didChangePage pageIndex: Int, totalPages: Int)
@@ -269,3 +272,4 @@ public final class ReaderViewController: UIViewController, UICollectionViewDataS
         }
     }
 }
+#endif

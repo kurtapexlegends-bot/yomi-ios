@@ -1,4 +1,6 @@
 import Foundation
+
+#if canImport(ActivityKit)
 import ActivityKit
 
 /// Attributes defining the Dynamic Island and Lock Screen Live Activity for active chapter downloads.
@@ -95,3 +97,12 @@ public final class DownloadActivityController: @unchecked Sendable {
         }
     }
 }
+#else
+public final class DownloadActivityController: @unchecked Sendable {
+    public static let shared = DownloadActivityController()
+    private init() {}
+    public func startActivity(mangaTitle: String, chapterName: String, totalPages: Int, remainingCount: Int) {}
+    public func updateProgress(mangaTitle: String, chapterName: String, downloadedPages: Int, totalPages: Int, remainingCount: Int) {}
+    public func endActivity() {}
+}
+#endif

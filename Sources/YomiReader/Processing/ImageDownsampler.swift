@@ -1,7 +1,9 @@
 import Foundation
-import UIKit
 import CoreGraphics
 import ImageIO
+
+#if canImport(UIKit)
+import UIKit
 
 /// High-performance image decoding and thumbnail generation using ImageIO sub-sampling.
 public final class ImageDownsampler: @unchecked Sendable {
@@ -15,7 +17,7 @@ public final class ImageDownsampler: @unchecked Sendable {
     }
 
     /// Downsamples raw image data to target bounding point size before memory decoding.
-    public func downsample(data: Data, to pointSize: CGSize, scale: CGFloat = UIScreen.main.scale) -> UIImage? {
+    public func downsample(data: Data, to pointSize: CGSize, scale: CGFloat = 2.0) -> UIImage? {
         let cacheKey = "\(data.count)_\(Int(pointSize.width))x\(Int(pointSize.height))" as NSString
         if let cached = memoryCache.object(forKey: cacheKey) {
             return cached
@@ -30,7 +32,6 @@ public final class ImageDownsampler: @unchecked Sendable {
         let downsampleOptions: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: maxDimensionInPixels
         ]
 
@@ -53,3 +54,4 @@ public final class ImageDownsampler: @unchecked Sendable {
         memoryCache.removeAllObjects()
     }
 }
+#endif

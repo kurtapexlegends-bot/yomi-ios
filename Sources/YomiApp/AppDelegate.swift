@@ -1,8 +1,11 @@
-import UIKit
+import Foundation
 import UserNotifications
 import YomiCore
 import YomiDownload
 import YomiSync
+
+#if canImport(UIKit)
+import UIKit
 
 public final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     public func application(
@@ -47,3 +50,8 @@ public final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificat
         completionHandler([.banner, .sound, .badge])
     }
 }
+#else
+public final class AppDelegate: NSObject {
+    public override init() { super.init() }
+}
+#endif
