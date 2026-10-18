@@ -42,13 +42,13 @@ public final class PrivacyManager: @unchecked Sendable {
     }
 
     /// Checks if a category is locked and unlocked for the current session.
-    public func isCategoryUnlocked(_ category: Category) -> Bool {
+    public func isCategoryUnlocked(_ category: YomiCategory) -> Bool {
         guard category.isLocked, let id = category.id else { return true }
         return unlockedCategoryIds.contains(id)
     }
 
     /// Unlocks a category after successful biometric verification.
-    public func unlockCategory(_ category: Category) {
+    public func unlockCategory(_ category: YomiCategory) {
         guard let id = category.id else { return }
         unlockedCategoryIds.insert(id)
     }

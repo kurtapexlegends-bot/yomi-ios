@@ -153,7 +153,7 @@ public struct CategoryRecord: Codable, FetchableRecord, MutablePersistableRecord
         id = inserted.rowID
     }
 
-    public init(category: Category) {
+    public init(category: YomiCategory) {
         self.id = category.id
         self.name = category.name
         self.sort_order = category.order
@@ -161,8 +161,8 @@ public struct CategoryRecord: Codable, FetchableRecord, MutablePersistableRecord
         self.is_locked = category.isLocked
     }
 
-    public func toDomain() -> Category {
-        Category(
+    public func toDomain() -> YomiCategory {
+        YomiCategory(
             id: id,
             name: name,
             order: sort_order,

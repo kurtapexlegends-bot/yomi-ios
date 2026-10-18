@@ -1,7 +1,7 @@
 import Foundation
 
 /// Represents a user-defined category or folder in the library.
-public struct Category: Identifiable, Hashable, Codable, Sendable {
+public struct YomiCategory: Identifiable, Hashable, Codable, Sendable {
     public var id: Int64?
     public var name: String
     public var order: Int
@@ -23,7 +23,8 @@ public struct Category: Identifiable, Hashable, Codable, Sendable {
     }
 
     /// Predefined default category for uncategorized manga.
-    public static var defaultCategory: Category {
-        Category(id: 0, name: "Default", order: 0, flags: 0, isLocked: false)
+    public static var defaultCategory: YomiCategory {
+        YomiCategory(id: 0, name: "Default", order: 0, flags: 0, isLocked: false)
     }
 }
+

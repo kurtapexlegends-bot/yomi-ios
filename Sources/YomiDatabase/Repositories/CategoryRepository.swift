@@ -10,7 +10,7 @@ public final class CategoryRepository: Sendable {
     }
 
     /// Fetches all custom categories ordered by sort order.
-    public func getAllCategories() async throws -> [Category] {
+    public func getAllCategories() async throws -> [YomiCategory] {
         try await dbManager.read { db in
             try CategoryRecord
                 .order(Column("sort_order").asc)
@@ -21,17 +21,17 @@ public final class CategoryRepository: Sendable {
 
     /// Creates a new user category.
     @discardableResult
-    public func createCategory(name: String, isLocked: Bool = false) async throws -> Category {
+    public func createCategory(name: String, isLocked: Bool = false) async throws -> YomiCategory {
         try await dbManager.write { db in
             let maxOrder = try Int.fetchOne(db, sql: "SELECT COALESCE(MAX(sort_order), -1) FROM categories") ?? -1
-            var record = CategoryRecord(category: Category(name: name, order: maxOrder + 1, flags: 0, isLocked: isLocked))
+            var record = CategoryRecord(category: YomiCategory(name: name, order: maxOrder + 1, flags: 0, isLocked: isLocked))
             try record.insert(db)
             return record.toDomain()
         }
     }
 
     /// Updates an existing category (rename, lock toggle).
-    public func updateCategory(_ category: Category) async throws {
+    public func updateCategory(_ category: YomiCategory) async throws {
         try await dbManager.write { db in
             var record = CategoryRecord(category: category)
             try record.update(db)

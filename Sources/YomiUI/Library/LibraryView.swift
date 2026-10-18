@@ -4,7 +4,7 @@ import YomiDatabase
 
 public struct LibraryView: View {
     @State private var mangas: [Manga] = []
-    @State private var categories: [Category] = []
+    @State private var categories: [YomiCategory] = []
     @State private var selectedCategoryId: Int64? = nil
     @State private var searchQuery: String = ""
     @State private var isLoading: Bool = false
@@ -136,7 +136,7 @@ public struct LibraryView: View {
         }
     }
 
-    private func handleCategoryTap(_ category: Category) {
+    private func handleCategoryTap(_ category: YomiCategory) {
         if category.isLocked && !privacyManager.isCategoryUnlocked(category) {
             Task {
                 let success = await biometricManager.requestUnlock(reason: "Unlock \(category.name)")
