@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import ImageIO
+import YomiCore
 
 #if canImport(UIKit)
 import UIKit
