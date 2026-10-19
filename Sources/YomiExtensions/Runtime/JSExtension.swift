@@ -84,11 +84,17 @@ public final class JSExtension: SourceProtocol, @unchecked Sendable {
 
     public func getFilters() -> [Filter] {
         guard let context = try? makeContext() else { return [] }
-        guard let extObj = context.objectForKeyedSubscript("Extension"), !extObj.isUndefined,
-              let fn = extObj.objectForKeyedSubscript("getFilters"), !fn.isUndefined else {
-            return []
-        }
-        guard let res = fn.call(withArguments: []), !res.isUndefined, !res.isNull else { return [] }
+        let jsCall = """
+        (() => {
+            try {
+                if (typeof Extension !== 'undefined' && typeof Extension.getFilters === 'function') {
+                    return Extension.getFilters();
+                }
+            } catch (e) {}
+            return [];
+        })()
+        """
+        guard let res = context.evaluateScript(jsCall), !res.isUndefined, !res.isNull else { return [] }
         guard let list = res.toArray() as? [[String: Any]] else { return [] }
 
         return list.compactMap { (dict: [String: Any]) -> Filter? in
@@ -99,15 +105,15 @@ public final class JSExtension: SourceProtocol, @unchecked Sendable {
             switch type {
             case "select":
                 let values = dict["values"] as? [String] ?? []
-                let selectedIndex = dict["selectedIndex"] as? Int ?? 0
+                let selectedIndex = (dict["selectedIndex"] as? NSNumber)?.intValue ?? (dict["selectedIndex"] as? Int ?? 0)
                 return Filter.select(id: id, name: name, values: values, selectedIndex: selectedIndex)
             case "triState":
-                let stateRaw = dict["state"] as? Int ?? 0
+                let stateRaw = (dict["state"] as? NSNumber)?.intValue ?? (dict["state"] as? Int ?? 0)
                 let state = TriState(rawValue: stateRaw) ?? .ignored
                 return Filter.triState(id: id, name: name, state: state)
             case "sort":
                 let values = dict["values"] as? [String] ?? []
-                let selectedIndex = dict["selectedIndex"] as? Int ?? 0
+                let selectedIndex = (dict["selectedIndex"] as? NSNumber)?.intValue ?? (dict["selectedIndex"] as? Int ?? 0)
                 let ascending = dict["ascending"] as? Bool ?? false
                 return Filter.sort(id: id, name: name, values: values, selectedIndex: selectedIndex, ascending: ascending)
             case "text":
@@ -136,7 +142,12 @@ public final class JSExtension: SourceProtocol, @unchecked Sendable {
     }
 
     public func searchManga(query: String, filters: [Filter], page: Int) async throws -> MangaPageResult {
-        let escapedQuery = query.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        let escapedQuery = query
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "\t", with: "\\t")
         var filterDicts: [[String: Any]] = []
         for filter in filters {
             switch filter {
@@ -158,7 +169,7 @@ public final class JSExtension: SourceProtocol, @unchecked Sendable {
             filterJson = "[]"
         }
 
-        let script = "Extension.searchManga(\"\(escapedQuery)\", \(filterJson), \(page))"
+        let script = "Extension.searchManga.length <= 2 ? Extension.searchManga(\"\(escapedQuery)\", \(page)) : Extension.searchManga(\"\(escapedQuery)\", \(filterJson), \(page))"
         let result = try await executeWithCloudflareRecovery {
             try await self.executeAsync(script: script)
         }
@@ -166,7 +177,7 @@ public final class JSExtension: SourceProtocol, @unchecked Sendable {
     }
 
     public func getMangaDetails(manga: Manga) async throws -> Manga {
-        let escapedUrl = manga.url.replacingOccurrences(of: "\"", with: "\\\"")
+        let escapedUrl = manga.url.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
         let script = "Extension.getMangaDetails(\"\(escapedUrl)\")"
         let result = try await executeWithCloudflareRecovery {
             try await self.executeAsync(script: script)
@@ -188,7 +199,7 @@ public final class JSExtension: SourceProtocol, @unchecked Sendable {
     }
 
     public func getChapterList(manga: Manga) async throws -> [Chapter] {
-        let escapedUrl = manga.url.replacingOccurrences(of: "\"", with: "\\\"")
+        let escapedUrl = manga.url.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
         let script = "Extension.getChapterList(\"\(escapedUrl)\")"
         let result = try await executeWithCloudflareRecovery {
             try await self.executeAsync(script: script)
@@ -222,7 +233,7 @@ public final class JSExtension: SourceProtocol, @unchecked Sendable {
     }
 
     public func getPageList(chapter: Chapter) async throws -> [ReaderPage] {
-        let escapedUrl = chapter.url.replacingOccurrences(of: "\"", with: "\\\"")
+        let escapedUrl = chapter.url.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
         let script = "Extension.getPageList(\"\(escapedUrl)\")"
         let result = try await executeWithCloudflareRecovery {
             try await self.executeAsync(script: script)

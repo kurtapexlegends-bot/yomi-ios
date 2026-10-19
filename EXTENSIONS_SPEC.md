@@ -39,6 +39,16 @@ Every `.js` scraper script must register a global `Extension` object implementin
 
 ```javascript
 const Extension = {
+    // Optional: Return dynamic source filters (select, triState, sort, text)
+    getFilters: function() {
+        return [
+            { type: "select", id: "genre", name: "Genre", values: ["All", "Action", "Drama"], selectedIndex: 0 },
+            { type: "triState", id: "completed", name: "Completed", state: 0 },
+            { type: "sort", id: "sort", name: "Sort By", values: ["Popularity", "Latest"], selectedIndex: 0, ascending: false },
+            { type: "text", id: "author", name: "Author", state: "" }
+        ];
+    },
+
     // Return paginated list of popular manga
     getPopularManga: async function(page) {
         // Returns: { mangas: [{ url, title, thumbnailUrl }], hasNextPage: boolean }
@@ -49,8 +59,8 @@ const Extension = {
         // Returns: { mangas: [{ url, title, thumbnailUrl }], hasNextPage: boolean }
     },
 
-    // Search manga with text query
-    searchManga: async function(query, page) {
+    // Search manga with text query (supports both (query, page) and (query, filters, page))
+    searchManga: async function(query, filters, page) {
         // Returns: { mangas: [{ url, title, thumbnailUrl }], hasNextPage: boolean }
     },
 

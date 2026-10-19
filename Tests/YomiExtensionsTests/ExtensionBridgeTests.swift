@@ -169,7 +169,21 @@ final class ExtensionBridgeTests: XCTestCase {
         XCTAssertTrue(script.contains("/manga-list/latest-manga?page="))
         XCTAssertTrue(script.contains("/search/story/"))
         XCTAssertTrue(script.contains("getFilters: function()"))
-        XCTAssertTrue(script.contains("type: 'select'"))
+        XCTAssertTrue(script.contains("type: 'select'") || script.contains("type: \"select\""))
+
+        // End-to-end: verify JSExtension runtime parses generated scraper's filters correctly
+        let manifest = SourceManifest(
+            id: pkg.id,
+            name: pkg.name,
+            lang: pkg.lang,
+            baseUrl: pkg.baseUrl
+        )
+        let jsExt = JSExtension(manifest: manifest, scriptContent: script)
+        let filters = jsExt.getFilters()
+        XCTAssertEqual(filters.count, 3)
+        XCTAssertEqual(filters[0].id, "genre")
+        XCTAssertEqual(filters[1].id, "status")
+        XCTAssertEqual(filters[2].id, "sort")
     }
 
     func testMangaDexUUIDExtraction() {
@@ -194,8 +208,9 @@ final class ExtensionBridgeTests: XCTestCase {
             name: "TestJSExtension",
             baseUrl: "https://example.com"
         )
-        let script = """
-        var Extension = {
+        // Test standard const Extension declaration
+        let constScript = """
+        const Extension = {
             getFilters: function() {
                 return [
                     { type: "select", id: "genre", name: "Genre", values: ["All", "Action", "Drama"], selectedIndex: 0 },
@@ -206,20 +221,33 @@ final class ExtensionBridgeTests: XCTestCase {
             }
         };
         """
-        let jsExt = JSExtension(manifest: manifest, scriptContent: script)
-        let filters = jsExt.getFilters()
-        XCTAssertEqual(filters.count, 4)
-        XCTAssertEqual(filters[0].id, "genre")
-        XCTAssertEqual(filters[0].name, "Genre")
-        XCTAssertEqual(filters[1].id, "completed")
-        XCTAssertEqual(filters[1].name, "Completed")
-        XCTAssertEqual(filters[2].id, "sort")
-        XCTAssertEqual(filters[2].name, "Sort By")
-        XCTAssertEqual(filters[3].id, "author")
-        XCTAssertEqual(filters[3].name, "Author")
+        let constExt = JSExtension(manifest: manifest, scriptContent: constScript)
+        let constFilters = constExt.getFilters()
+        XCTAssertEqual(constFilters.count, 4)
+        XCTAssertEqual(constFilters[0].id, "genre")
+        XCTAssertEqual(constFilters[0].name, "Genre")
+        XCTAssertEqual(constFilters[1].id, "completed")
+        XCTAssertEqual(constFilters[1].name, "Completed")
+        XCTAssertEqual(constFilters[2].id, "sort")
+        XCTAssertEqual(constFilters[2].name, "Sort By")
+        XCTAssertEqual(constFilters[3].id, "author")
+        XCTAssertEqual(constFilters[3].name, "Author")
+
+        // Also test var Extension declaration
+        let varScript = """
+        var Extension = {
+            getFilters: function() {
+                return [
+                    { type: "select", id: "lang", name: "Language", values: ["All", "EN"], selectedIndex: 0 }
+                ];
+            }
+        };
+        """
+        let varExt = JSExtension(manifest: manifest, scriptContent: varScript)
+        XCTAssertEqual(varExt.getFilters().count, 1)
 
         // Also test empty / missing getFilters
-        let emptyScript = "var Extension = {};"
+        let emptyScript = "const Extension = {};"
         let emptyExt = JSExtension(manifest: manifest, scriptContent: emptyScript)
         XCTAssertTrue(emptyExt.getFilters().isEmpty)
     }
