@@ -22,7 +22,7 @@ public enum AppTab: String, CaseIterable, Identifiable {
 /// Root application view switching between iPhone TabView and iPadOS NavigationSplitView.
 public struct AppRootView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @State private var selectedTab: AppTab = .library
+    @State private var selectedTab: AppTab? = .library
     @State private var biometricManager = BiometricSecurityManager.shared
     @State private var privacyManager = PrivacyManager.shared
 
@@ -40,11 +40,14 @@ public struct AppRootView: View {
                     }
                     .navigationTitle("Yomi")
                 } detail: {
-                    tabContent(for: selectedTab)
+                    tabContent(for: selectedTab ?? .library)
                 }
             } else {
                 // iPhone Native Tab Bar
-                TabView(selection: $selectedTab) {
+                TabView(selection: Binding(
+                    get: { selectedTab ?? .library },
+                    set: { selectedTab = $0 }
+                )) {
                     LibraryView()
                         .tabItem {
                             Label("Library", systemImage: "books.vertical.fill")
