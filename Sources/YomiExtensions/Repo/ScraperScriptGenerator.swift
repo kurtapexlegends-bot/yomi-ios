@@ -22,9 +22,9 @@ enum ScraperScriptGenerator {
             getFilters: function() {
                 return [
                     {
-                        type: "select",
-                        id: "genre",
-                        name: "Genre",
+                        type: 'select',
+                        id: 'genre',
+                        name: 'Genre',
                         values: [
                             "All", "Action", "Adaptation", "Adult", "Adventure", "Comedy", "Demons",
                             "Drama", "Ecchi", "Fantasy", "Gender Bender", "Harem", "Historical",
@@ -35,16 +35,16 @@ enum ScraperScriptGenerator {
                         selectedIndex: 0
                     },
                     {
-                        type: "select",
-                        id: "status",
-                        name: "Status",
+                        type: 'select',
+                        id: 'status',
+                        name: 'Status',
                         values: ["All", "Ongoing", "Completed"],
                         selectedIndex: 0
                     },
                     {
-                        type: "select",
-                        id: "sort",
-                        name: "Sort By",
+                        type: 'select',
+                        id: 'sort',
+                        name: 'Sort By',
                         values: ["Latest", "Top View", "Newest"],
                         selectedIndex: 0
                     }
@@ -195,9 +195,9 @@ enum ScraperScriptGenerator {
             getFilters: function() {
                 return [
                     {
-                        type: "select",
-                        id: "status",
-                        name: "Status",
+                        type: 'select',
+                        id: 'status',
+                        name: 'Status',
                         values: ["All", "Ongoing", "Completed"],
                         selectedIndex: 0
                     }
