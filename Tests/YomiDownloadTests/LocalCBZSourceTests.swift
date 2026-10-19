@@ -33,7 +33,7 @@ final class LocalCBZSourceTests: XCTestCase {
         }
     }
 
-    func testLocalCBZSourceExtractsExactPageData() throws {
+    func testLocalCBZSourceExtractsExactPageData() async throws {
         let archiveURL = makeTempArchiveURL()
         try FileManager.default.createDirectory(at: archiveURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: archiveURL.deletingLastPathComponent()) }
@@ -48,7 +48,7 @@ final class LocalCBZSourceTests: XCTestCase {
         XCTAssertEqual(source.pages.count, 2)
 
         let firstPage = try XCTUnwrap(source.pages.first)
-        let data = try source.getImageData(page: firstPage)
+        let data = try await source.getImageData(page: firstPage)
         XCTAssertEqual(data, pageBytes[0])
         XCTAssertLessThan(data.count, 16 * 1024, "Only the single entry should be extracted")
     }
