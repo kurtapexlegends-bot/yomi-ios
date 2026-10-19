@@ -83,7 +83,7 @@ public final class JSExtension: SourceProtocol, @unchecked Sendable {
     // MARK: - SourceProtocol Implementation
 
     public func getFilters() -> [Filter] {
-        guard let context = context else { return [] }
+        guard let context = try? makeContext() else { return [] }
         guard let extObj = context.objectForKeyedSubscript("Extension"), !extObj.isUndefined,
               let fn = extObj.objectForKeyedSubscript("getFilters"), !fn.isUndefined else {
             return []
@@ -91,7 +91,7 @@ public final class JSExtension: SourceProtocol, @unchecked Sendable {
         guard let res = fn.call(withArguments: []), !res.isUndefined, !res.isNull else { return [] }
         guard let list = res.toArray() as? [[String: Any]] else { return [] }
 
-        return list.compactMap { dict in
+        return list.compactMap { (dict: [String: Any]) -> Filter? in
             guard let type = dict["type"] as? String,
                   let id = dict["id"] as? String,
                   let name = dict["name"] as? String else { return nil }
@@ -100,19 +100,19 @@ public final class JSExtension: SourceProtocol, @unchecked Sendable {
             case "select":
                 let values = dict["values"] as? [String] ?? []
                 let selectedIndex = dict["selectedIndex"] as? Int ?? 0
-                return .select(id: id, name: name, values: values, selectedIndex: selectedIndex)
+                return Filter.select(id: id, name: name, values: values, selectedIndex: selectedIndex)
             case "triState":
                 let stateRaw = dict["state"] as? Int ?? 0
                 let state = TriState(rawValue: stateRaw) ?? .ignored
-                return .triState(id: id, name: name, state: state)
+                return Filter.triState(id: id, name: name, state: state)
             case "sort":
                 let values = dict["values"] as? [String] ?? []
                 let selectedIndex = dict["selectedIndex"] as? Int ?? 0
                 let ascending = dict["ascending"] as? Bool ?? false
-                return .sort(id: id, name: name, values: values, selectedIndex: selectedIndex, ascending: ascending)
+                return Filter.sort(id: id, name: name, values: values, selectedIndex: selectedIndex, ascending: ascending)
             case "text":
                 let state = dict["state"] as? String ?? ""
-                return .text(id: id, name: name, state: state)
+                return Filter.text(id: id, name: name, state: state)
             default:
                 return nil
             }

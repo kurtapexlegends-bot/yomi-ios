@@ -94,17 +94,29 @@ public final class RepoManager: @unchecked Sendable {
         return trimmed
     }
 
+    private func getCachedIndex(for url: String) -> RemoteRepoIndex? {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        if let cached = indexCache[url], Date().timeIntervalSince(cached.timestamp) < cacheTTL {
+            return cached.index
+        }
+        return nil
+    }
+
+    private func setCachedIndex(_ index: RemoteRepoIndex, for url: String) {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        indexCache[url] = (index, Date())
+    }
+
     /// Fetches and parses a community repository's index (supporting Yomi, Keiyoushi v2, and legacy formats).
     public func fetchRepoIndex(from repoUrlString: String, forceRefresh: Bool = false) async throws -> RemoteRepoIndex {
         let normalized = normalizeRepoUrl(repoUrlString)
 
         if !forceRefresh {
-            cacheLock.lock()
-            if let cached = indexCache[normalized], Date().timeIntervalSince(cached.timestamp) < cacheTTL {
-                cacheLock.unlock()
-                return cached.index
+            if let cached = getCachedIndex(for: normalized) {
+                return cached
             }
-            cacheLock.unlock()
         }
 
         guard let url = URL(string: normalized) else {
@@ -122,9 +134,7 @@ public final class RepoManager: @unchecked Sendable {
 
         do {
             let parsed = try parseRepoData(data, sourceUrl: normalized)
-            cacheLock.lock()
-            indexCache[normalized] = (parsed, Date())
-            cacheLock.unlock()
+            setCachedIndex(parsed, for: normalized)
             return parsed
         } catch let YomiError.jsonParsingError(msg) where msg == "deprecated_stub" {
             // Self-healing fallback: seamlessly fetch Keiyoushi modern v2 index

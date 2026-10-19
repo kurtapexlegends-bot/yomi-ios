@@ -187,5 +187,42 @@ final class ExtensionBridgeTests: XCTestCase {
             }
         }
     }
+
+    func testJSExtensionGetFilters() {
+        let manifest = SourceManifest(
+            id: 88888,
+            name: "TestJSExtension",
+            baseUrl: "https://example.com"
+        )
+        let script = """
+        var Extension = {
+            getFilters: function() {
+                return [
+                    { type: "select", id: "genre", name: "Genre", values: ["All", "Action", "Drama"], selectedIndex: 0 },
+                    { type: "triState", id: "completed", name: "Completed", state: 1 },
+                    { type: "sort", id: "sort", name: "Sort By", values: ["Popularity", "Latest"], selectedIndex: 1, ascending: true },
+                    { type: "text", id: "author", name: "Author", state: "Oda" }
+                ];
+            }
+        };
+        """
+        let jsExt = JSExtension(manifest: manifest, scriptContent: script)
+        let filters = jsExt.getFilters()
+        XCTAssertEqual(filters.count, 4)
+        XCTAssertEqual(filters[0].id, "genre")
+        XCTAssertEqual(filters[0].name, "Genre")
+        XCTAssertEqual(filters[1].id, "completed")
+        XCTAssertEqual(filters[1].name, "Completed")
+        XCTAssertEqual(filters[2].id, "sort")
+        XCTAssertEqual(filters[2].name, "Sort By")
+        XCTAssertEqual(filters[3].id, "author")
+        XCTAssertEqual(filters[3].name, "Author")
+
+        // Also test empty / missing getFilters
+        let emptyScript = "var Extension = {};"
+        let emptyExt = JSExtension(manifest: manifest, scriptContent: emptyScript)
+        XCTAssertTrue(emptyExt.getFilters().isEmpty)
+    }
 }
+
 
