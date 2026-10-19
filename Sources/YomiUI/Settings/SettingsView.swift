@@ -2,6 +2,8 @@ import SwiftUI
 import YomiCore
 import YomiReader
 import YomiSync
+import YomiDownload
+
 
 public struct SettingsView: View {
     @State private var biometricManager = BiometricSecurityManager.shared
@@ -89,6 +91,12 @@ public struct SettingsView: View {
 
                 // MARK: - Cache & Storage
                 Section("Storage & Performance") {
+                    NavigationLink {
+                        DownloadsView()
+                    } label: {
+                        Label("Downloads & Storage", systemImage: "arrow.down.circle")
+                    }
+
                     Button("Purge Image Memory Cache") {
                         ImageDownsampler.shared.purgeMemory()
                         statusMessage = "Image cache purged."

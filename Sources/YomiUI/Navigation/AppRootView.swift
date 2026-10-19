@@ -3,8 +3,9 @@ import YomiCore
 
 public enum AppTab: String, CaseIterable, Identifiable {
     case library = "Library"
-    case browse = "Browse"
-    case downloads = "Downloads"
+    case updates = "Updates"
+    case history = "History"
+    case sources = "Sources"
     case settings = "Settings"
 
     public var id: String { rawValue }
@@ -12,8 +13,9 @@ public enum AppTab: String, CaseIterable, Identifiable {
     public var iconName: String {
         switch self {
         case .library: return "books.vertical.fill"
-        case .browse: return "safari.fill"
-        case .downloads: return "arrow.down.circle.fill"
+        case .updates: return "bell.fill"
+        case .history: return "clock.arrow.circlepath"
+        case .sources: return "globe"
         case .settings: return "gearshape.fill"
         }
     }
@@ -54,17 +56,23 @@ public struct AppRootView: View {
                         }
                         .tag(AppTab.library)
 
+                    UpdatesView()
+                        .tabItem {
+                            Label("Updates", systemImage: "bell.fill")
+                        }
+                        .tag(AppTab.updates)
+
+                    HistoryView()
+                        .tabItem {
+                            Label("History", systemImage: "clock.arrow.circlepath")
+                        }
+                        .tag(AppTab.history)
+
                     BrowseView()
                         .tabItem {
-                            Label("Browse", systemImage: "safari.fill")
+                            Label("Sources", systemImage: "globe")
                         }
-                        .tag(AppTab.browse)
-
-                    DownloadsView()
-                        .tabItem {
-                            Label("Downloads", systemImage: "arrow.down.circle.fill")
-                        }
-                        .tag(AppTab.downloads)
+                        .tag(AppTab.sources)
 
                     SettingsView()
                         .tabItem {
@@ -94,12 +102,14 @@ public struct AppRootView: View {
     private func tabContent(for tab: AppTab) -> some View {
         switch tab {
         case .library: LibraryView()
-        case .browse: BrowseView()
-        case .downloads: DownloadsView()
+        case .updates: UpdatesView()
+        case .history: HistoryView()
+        case .sources: BrowseView()
         case .settings: SettingsView()
         }
     }
 }
+
 
 /// Overlay shield presented when the application is locked behind biometrics.
 struct BiometricLockShieldView: View {

@@ -49,14 +49,26 @@ public struct Chapter: Identifiable, Hashable, Codable, Sendable {
     /// Formatted chapter display title (e.g., "Ch. 12 - Title" or "Chapter 12").
     public var displayTitle: String {
         if chapterNumber >= 0 {
-            let formattedNumber = chapterNumber.truncatingRemainder(dividingBy: 1) == 0 
-                ? String(format: "%.0f", chapterNumber) 
+            let formattedNumber = chapterNumber.truncatingRemainder(dividingBy: 1) == 0
+                ? String(format: "%.0f", chapterNumber)
                 : String(format: "%.1f", chapterNumber)
-            if name.lowercased().contains("chapter") || name.lowercased().contains("ch.") {
-                return name
+            let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmedName.isEmpty {
+                return "Ch. \(formattedNumber)"
             }
-            return "Ch. \(formattedNumber) — \(name)"
+            if trimmedName.lowercased().hasPrefix("chapter") || trimmedName.lowercased().hasPrefix("ch.") {
+                return trimmedName
+            }
+            return "Ch. \(formattedNumber) — \(trimmedName)"
         }
-        return name
+        return name.isEmpty ? "Chapter" : name
+    }
+
+    /// Unique identity key for SwiftUI lists, navigation, and diffing.
+    public var stableId: String {
+        if let id = id {
+            return "ch_\(id)"
+        }
+        return "ch_\(mangaId)_\(url)"
     }
 }

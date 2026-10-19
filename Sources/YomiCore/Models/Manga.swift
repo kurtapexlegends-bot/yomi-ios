@@ -106,4 +106,13 @@ public struct Manga: Identifiable, Hashable, Codable, Sendable {
     public var effectiveThumbnailUrl: String? {
         customThumbnailUrl ?? thumbnailUrl
     }
+
+    /// Unique identity key for SwiftUI lists, navigation, and diffing.
+    /// Prefers the local database primary key if saved; falls back to source-scoped URL for catalog browsing.
+    public var stableId: String {
+        if let id = id {
+            return "db_\(id)"
+        }
+        return "\(sourceId)_\(url)"
+    }
 }

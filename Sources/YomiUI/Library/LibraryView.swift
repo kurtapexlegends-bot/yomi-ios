@@ -8,7 +8,6 @@ public struct LibraryView: View {
     @State private var selectedCategoryId: Int64? = nil
     @State private var searchQuery: String = ""
     @State private var isLoading: Bool = false
-    @State private var selectedMangaForDetail: Manga?
 
     private let mangaRepo = MangaRepository()
     private let categoryRepo = CategoryRepository()
@@ -78,11 +77,13 @@ public struct LibraryView: View {
                     } else {
                         ScrollView {
                             LazyVGrid(columns: columns, spacing: 14) {
-                                ForEach(mangas) { manga in
-                                    MangaCardView(manga: manga)
-                                        .onTapGesture {
-                                            selectedMangaForDetail = manga
-                                        }
+                                ForEach(mangas, id: \.stableId) { manga in
+                                    NavigationLink(value: manga) {
+                                        MangaCardView(manga: manga, onToggleLibrary: {
+                                            loadMangas()
+                                        })
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             }
                             .padding(16)
@@ -92,6 +93,16 @@ public struct LibraryView: View {
             }
             .navigationTitle("Library")
             .searchable(text: $searchQuery, prompt: "Search titles, authors...")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    NavigationLink {
+                        DownloadsView()
+                    } label: {
+                        Image(systemName: "arrow.down.circle")
+                            .foregroundStyle(YomiTheme.accent)
+                    }
+                }
+            }
             .onChange(of: searchQuery) { _, newQuery in
                 searchLibrary(query: newQuery)
             }
@@ -101,11 +112,12 @@ public struct LibraryView: View {
             .onAppear {
                 loadInitialData()
             }
-            .navigationDestination(item: $selectedMangaForDetail) { manga in
+            .navigationDestination(for: Manga.self) { manga in
                 MangaDetailView(manga: manga)
             }
         }
     }
+
 
     private func loadInitialData() {
         Task {
@@ -186,9 +198,11 @@ struct CategoryPill: View {
 
 public struct MangaCardView: View {
     public let manga: Manga
+    public var onToggleLibrary: (() -> Void)? = nil
 
-    public init(manga: Manga) {
+    public init(manga: Manga, onToggleLibrary: (() -> Void)? = nil) {
         self.manga = manga
+        self.onToggleLibrary = onToggleLibrary
     }
 
     public var body: some View {
@@ -213,16 +227,34 @@ public struct MangaCardView: View {
                         EmptyView()
                     }
                 }
-                .frame(minHeight: 155, maxHeight: 220)
+                .aspectRatio(11/16, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous))
+                .clipped()
 
                 // Subtle gradient overlay for title legibility
                 LinearGradient(
-                    colors: [.clear, .black.opacity(0.8)],
+                    colors: [.clear, .black.opacity(0.85)],
                     startPoint: .center,
                     endPoint: .bottom
                 )
                 .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous))
+
+                // In-Library indicator badge
+                if manga.inLibrary {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Image(systemName: "heart.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.white)
+                                .padding(5)
+                                .background(YomiTheme.accent.opacity(0.9))
+                                .clipShape(Circle())
+                                .padding(6)
+                        }
+                        Spacer()
+                    }
+                }
 
                 Text(manga.title)
                     .font(.caption.bold())
@@ -233,12 +265,29 @@ public struct MangaCardView: View {
             .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
         }
         .contextMenu {
-            Button {
-                Task {
-                    try? await MangaRepository().setInLibrary(mangaId: manga.id ?? 0, inLibrary: false)
+            if manga.inLibrary {
+                Button(role: .destructive) {
+                    Task {
+                        if let id = manga.id {
+                            try? await MangaRepository().setInLibrary(mangaId: id, inLibrary: false)
+                            onToggleLibrary?()
+                        }
+                    }
+                } label: {
+                    Label("Remove from Library", systemImage: "trash")
                 }
-            } label: {
-                Label("Remove from Library", systemImage: "trash")
+            } else {
+                Button {
+                    Task {
+                        let saved = (try? await MangaRepository().upsert(manga)) ?? manga
+                        if let id = saved.id {
+                            try? await MangaRepository().setInLibrary(mangaId: id, inLibrary: true)
+                            onToggleLibrary?()
+                        }
+                    }
+                } label: {
+                    Label("Add to Library", systemImage: "heart")
+                }
             }
         }
     }

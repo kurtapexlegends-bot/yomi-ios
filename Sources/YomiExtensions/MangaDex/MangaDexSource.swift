@@ -5,6 +5,14 @@ import YomiCore
 public final class MangaDexSource: SourceProtocol, Sendable {
     public static let sourceId: Int64 = 10001
     private let apiBase = "https://api.mangadex.org"
+    private let userAgent = "Yomi/1.0 (iOS; MangaDexSource)"
+
+    private func makeRequest(url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 20
+        return request
+    }
 
     public var manifest: SourceManifest {
         SourceManifest(
@@ -26,14 +34,38 @@ public final class MangaDexSource: SourceProtocol, Sendable {
 
     public func getPopularManga(page: Int) async throws -> MangaPageResult {
         let offset = (max(1, page) - 1) * 24
-        let urlString = "\(apiBase)/manga?limit=24&offset=\(offset)&order[followedCount]=desc&includes[]=cover_art&includes[]=author&contentRating[]=safe&contentRating[]=suggestive"
-        return try await fetchMangaList(from: urlString)
+        var components = URLComponents(string: "\(apiBase)/manga")!
+        components.queryItems = [
+            URLQueryItem(name: "limit", value: "24"),
+            URLQueryItem(name: "offset", value: "\(offset)"),
+            URLQueryItem(name: "order[followedCount]", value: "desc"),
+            URLQueryItem(name: "includes[]", value: "cover_art"),
+            URLQueryItem(name: "includes[]", value: "author"),
+            URLQueryItem(name: "contentRating[]", value: "safe"),
+            URLQueryItem(name: "contentRating[]", value: "suggestive")
+        ]
+        guard let url = components.url else {
+            throw YomiError.networkError("Invalid MangaDex URL components")
+        }
+        return try await fetchMangaList(from: url.absoluteString)
     }
 
     public func getLatestUpdates(page: Int) async throws -> MangaPageResult {
         let offset = (max(1, page) - 1) * 24
-        let urlString = "\(apiBase)/manga?limit=24&offset=\(offset)&order[latestUploadedChapter]=desc&includes[]=cover_art&includes[]=author&contentRating[]=safe&contentRating[]=suggestive"
-        return try await fetchMangaList(from: urlString)
+        var components = URLComponents(string: "\(apiBase)/manga")!
+        components.queryItems = [
+            URLQueryItem(name: "limit", value: "24"),
+            URLQueryItem(name: "offset", value: "\(offset)"),
+            URLQueryItem(name: "order[latestUploadedChapter]", value: "desc"),
+            URLQueryItem(name: "includes[]", value: "cover_art"),
+            URLQueryItem(name: "includes[]", value: "author"),
+            URLQueryItem(name: "contentRating[]", value: "safe"),
+            URLQueryItem(name: "contentRating[]", value: "suggestive")
+        ]
+        guard let url = components.url else {
+            throw YomiError.networkError("Invalid MangaDex URL components")
+        }
+        return try await fetchMangaList(from: url.absoluteString)
     }
 
     public func searchManga(query: String, filters: [Filter], page: Int) async throws -> MangaPageResult {
@@ -51,15 +83,24 @@ public final class MangaDexSource: SourceProtocol, Sendable {
             queryItems.append(URLQueryItem(name: "title", value: query))
         }
         components.queryItems = queryItems
-        return try await fetchMangaList(from: components.url!.absoluteString)
+        guard let url = components.url else {
+            throw YomiError.networkError("Invalid MangaDex URL components")
+        }
+        return try await fetchMangaList(from: url.absoluteString)
     }
 
     public func getMangaDetails(manga: Manga) async throws -> Manga {
         let mangaId = manga.url.components(separatedBy: "/").last ?? manga.url
-        let urlString = "\(apiBase)/manga/\(mangaId)?includes[]=cover_art&includes[]=author&includes[]=artist"
-        guard let url = URL(string: urlString) else { throw YomiError.networkError("Invalid MangaDex URL") }
+        var components = URLComponents(string: "\(apiBase)/manga/\(mangaId)")!
+        components.queryItems = [
+            URLQueryItem(name: "includes[]", value: "cover_art"),
+            URLQueryItem(name: "includes[]", value: "author"),
+            URLQueryItem(name: "includes[]", value: "artist")
+        ]
+        guard let url = components.url else { throw YomiError.networkError("Invalid MangaDex URL") }
 
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let request = makeRequest(url: url)
+        let (data, _) = try await URLSession.shared.data(for: request)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let dataDict = json["data"] as? [String: Any],
               let attributes = dataDict["attributes"] as? [String: Any] else {
@@ -109,10 +150,20 @@ public final class MangaDexSource: SourceProtocol, Sendable {
         var total = 100
 
         while offset < total {
-            let urlString = "\(apiBase)/manga/\(mangaId)/feed?limit=\(limit)&offset=\(offset)&translatedLanguage[]=en&order[chapter]=desc&contentRating[]=safe&contentRating[]=suggestive"
-            guard let url = URL(string: urlString) else { break }
+            var components = URLComponents(string: "\(apiBase)/manga/\(mangaId)/feed")!
+            components.queryItems = [
+                URLQueryItem(name: "limit", value: "\(limit)"),
+                URLQueryItem(name: "offset", value: "\(offset)"),
+                URLQueryItem(name: "translatedLanguage[]", value: "en"),
+                URLQueryItem(name: "order[chapter]", value: "desc"),
+                URLQueryItem(name: "includes[]", value: "scanlation_group"),
+                URLQueryItem(name: "contentRating[]", value: "safe"),
+                URLQueryItem(name: "contentRating[]", value: "suggestive")
+            ]
+            guard let url = components.url else { break }
 
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let request = makeRequest(url: url)
+            let (data, _) = try await URLSession.shared.data(for: request)
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let dataList = json["data"] as? [[String: Any]] else {
                 break
@@ -126,8 +177,26 @@ public final class MangaDexSource: SourceProtocol, Sendable {
 
                 let chString = attrs["chapter"] as? String ?? ""
                 let chNum = Float(chString) ?? -1.0
-                let title = attrs["title"] as? String ?? ""
-                let displayName = title.isEmpty ? "Chapter \(chString.isEmpty ? "?" : chString)" : "Ch. \(chString) - \(title)"
+                let rawTitle = (attrs["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let displayName: String
+                if rawTitle.isEmpty {
+                    displayName = chString.isEmpty ? "Chapter" : "Chapter \(chString)"
+                } else {
+                    displayName = rawTitle
+                }
+
+                // Extract scanlator group name from relationships
+                var scanlatorName: String?
+                if let rels = item["relationships"] as? [[String: Any]] {
+                    for rel in rels {
+                        if rel["type"] as? String == "scanlation_group",
+                           let groupAttrs = rel["attributes"] as? [String: Any],
+                           let name = groupAttrs["name"] as? String {
+                            scanlatorName = name
+                            break
+                        }
+                    }
+                }
 
                 let uploadDateStr = attrs["publishAt"] as? String ?? ""
                 let formatter = ISO8601DateFormatter()
@@ -137,7 +206,7 @@ public final class MangaDexSource: SourceProtocol, Sendable {
                     mangaId: manga.id ?? 0,
                     url: chId,
                     name: displayName,
-                    scanlator: nil,
+                    scanlator: scanlatorName,
                     chapterNumber: chNum,
                     sourceOrder: offset + idx,
                     dateFetch: Date(),
@@ -157,7 +226,8 @@ public final class MangaDexSource: SourceProtocol, Sendable {
         let urlString = "\(apiBase)/at-home/server/\(chapter.url)"
         guard let url = URL(string: urlString) else { throw YomiError.networkError("Invalid chapter URL") }
 
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let request = makeRequest(url: url)
+        let (data, _) = try await URLSession.shared.data(for: request)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let baseUrl = json["baseUrl"] as? String,
               let chapterDict = json["chapter"] as? [String: Any],
@@ -178,6 +248,7 @@ public final class MangaDexSource: SourceProtocol, Sendable {
         }
         var request = URLRequest(url: url)
         request.setValue("https://mangadex.org", forHTTPHeaderField: "Referer")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         let (data, _) = try await URLSession.shared.data(for: request)
         return data
     }
@@ -186,10 +257,11 @@ public final class MangaDexSource: SourceProtocol, Sendable {
 
     private func fetchMangaList(from urlString: String) async throws -> MangaPageResult {
         guard let url = URL(string: urlString) else {
-            throw YomiError.networkError("Invalid URL")
+            throw YomiError.networkError("Invalid URL: \(urlString)")
         }
 
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let request = makeRequest(url: url)
+        let (data, _) = try await URLSession.shared.data(for: request)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let dataList = json["data"] as? [[String: Any]] else {
             return MangaPageResult(mangas: [], hasNextPage: false)
@@ -205,17 +277,47 @@ public final class MangaDexSource: SourceProtocol, Sendable {
                   let attrs = item["attributes"] as? [String: Any] else { return nil }
 
             let titleDict = attrs["title"] as? [String: String]
-            let title = titleDict?["en"] ?? titleDict?.values.first ?? "Untitled Manga"
+            var title = titleDict?["en"] ?? titleDict?.values.first
+            if title == nil || title?.isEmpty == true {
+                if let altTitles = attrs["altTitles"] as? [[String: String]] {
+                    for alt in altTitles {
+                        if let t = alt["en"] ?? alt.values.first, !t.isEmpty {
+                            title = t
+                            break
+                        }
+                    }
+                }
+            }
 
-            // Look for cover art file in relationships
+            // Description
+            let descDict = attrs["description"] as? [String: String]
+            let description = descDict?["en"] ?? descDict?.values.first
+
+            // Status
+            var status: MangaStatus = .unknown
+            if let statusStr = attrs["status"] as? String {
+                switch statusStr.lowercased() {
+                case "ongoing": status = .ongoing
+                case "completed": status = .completed
+                case "hiatus": status = .onHiatus
+                case "cancelled": status = .cancelled
+                default: status = .unknown
+                }
+            }
+
+            // Look for cover art file and author in relationships
             var coverUrl: String?
+            var authorName: String?
             if let rels = item["relationships"] as? [[String: Any]] {
                 for rel in rels {
-                    if rel["type"] as? String == "cover_art",
+                    let type = rel["type"] as? String
+                    if type == "author" {
+                        authorName = (rel["attributes"] as? [String: Any])?["name"] as? String
+                    }
+                    if type == "cover_art",
                        let coverAttrs = rel["attributes"] as? [String: Any],
                        let fileName = coverAttrs["fileName"] as? String {
                         coverUrl = "https://uploads.mangadex.org/covers/\(mangaId)/\(fileName).512.jpg"
-                        break
                     }
                 }
             }
@@ -223,8 +325,10 @@ public final class MangaDexSource: SourceProtocol, Sendable {
             return Manga(
                 sourceId: Self.sourceId,
                 url: mangaId,
-                title: title,
-                status: .unknown,
+                title: title ?? "Untitled Manga",
+                author: authorName,
+                description: description,
+                status: status,
                 thumbnailUrl: coverUrl
             )
         }

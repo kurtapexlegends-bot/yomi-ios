@@ -6,18 +6,20 @@ import YomiDatabase
 
 public struct BrowseView: View {
     @State private var selectedTab: Int = 0 // 0 = Sources, 1 = Extension Store
-    @State private var sources: [any SourceProtocol] = []
-    @State private var selectedSourceId: Int64?
     @State private var cloudflareSolver = CloudflareSolver.shared
 
     private let extensionManager = ExtensionManager.shared
 
     public init() {}
 
+    private var sources: [any SourceProtocol] {
+        extensionManager.installedSources
+    }
+
     public var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                Picker("Browse", selection: $selectedTab) {
+                Picker("Sources", selection: $selectedTab) {
                     Text("Sources").tag(0)
                     Text("Extension Store").tag(1)
                 }
@@ -26,22 +28,24 @@ public struct BrowseView: View {
                 .padding(.vertical, 8)
 
                 if selectedTab == 0 {
-                    SourcesListView(sources: sources) { source in
-                        selectedSourceId = source.manifest.id
-                    }
+                    SourcesListView(sources: sources)
                 } else {
                     ExtensionStoreView()
                 }
             }
-            .navigationTitle("Browse")
-            .onAppear {
-                sources = extensionManager.installedSources
+            .navigationTitle("Sources")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    NavigationLink {
+                        DownloadsView()
+                    } label: {
+                        Image(systemName: "arrow.down.circle")
+                            .foregroundStyle(YomiTheme.accent)
+                    }
+                }
             }
-            .navigationDestination(isPresented: Binding(
-                get: { selectedSourceId != nil },
-                set: { if !$0 { selectedSourceId = nil } }
-            )) {
-                if let id = selectedSourceId, let source = extensionManager.getSource(id: id) {
+            .navigationDestination(for: SourceManifest.self) { manifest in
+                if let source = extensionManager.getSource(id: manifest.id) {
                     SourceExplorationView(source: source)
                 }
             }
@@ -52,19 +56,17 @@ public struct BrowseView: View {
     }
 }
 
+
 // MARK: - Sources List
 
 struct SourcesListView: View {
     let sources: [any SourceProtocol]
-    let onSelect: (any SourceProtocol) -> Void
 
     var body: some View {
         List {
             Section("Installed Sources") {
                 ForEach(sources, id: \.manifest.id) { source in
-                    Button {
-                        onSelect(source)
-                    } label: {
+                    NavigationLink(value: source.manifest) {
                         HStack(spacing: 12) {
                             AsyncImage(url: URL(string: source.manifest.iconUrl ?? "")) { phase in
                                 switch phase {
@@ -95,12 +97,6 @@ struct SourcesListView: View {
                                         .foregroundStyle(YomiTheme.textSecondary)
                                 }
                             }
-
-                            Spacer()
-
-                            Image(systemName: "chevron.right")
-                                .font(.caption.bold())
-                                .foregroundStyle(YomiTheme.textSecondary)
                         }
                         .padding(.vertical, 4)
                     }

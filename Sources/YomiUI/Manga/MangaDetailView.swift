@@ -111,7 +111,7 @@ public struct MangaDetailView: View {
                             .frame(maxWidth: .infinity, minHeight: 100)
                     } else {
                         LazyVStack(spacing: 0) {
-                            ForEach(chapters) { chapter in
+                            ForEach(chapters, id: \.stableId) { chapter in
                                 ChapterRowView(
                                     chapter: chapter,
                                     isDownloaded: isChapterDownloaded(chapter),
@@ -169,13 +169,38 @@ public struct MangaDetailView: View {
             ReaderContainerView(manga: manga, chapter: chapter)
         }
         #endif
+        .onChange(of: activeChapterForReading) { oldVal, newVal in
+            if oldVal != nil && newVal == nil {
+                if let mangaId = manga.id {
+                    Task {
+                        self.chapters = (try? await chapterRepo.getChapters(forMangaId: mangaId)) ?? self.chapters
+                    }
+                }
+            }
+        }
     }
 
     private func loadChapters() {
-        guard let mangaId = manga.id else { return }
         isLoadingChapters = true
 
         Task {
+            var currentManga = manga
+            if let existing = try? await mangaRepo.getManga(sourceId: currentManga.sourceId, url: currentManga.url) {
+                currentManga = existing
+                self.manga = existing
+                self.isInLibrary = existing.inLibrary
+            } else if currentManga.id == nil {
+                if let saved = try? await mangaRepo.upsert(currentManga) {
+                    currentManga = saved
+                    self.manga = saved
+                }
+            }
+
+            guard let mangaId = currentManga.id else {
+                self.isLoadingChapters = false
+                return
+            }
+
             // First load from local database
             let localChapters = (try? await chapterRepo.getChapters(forMangaId: mangaId)) ?? []
             if !localChapters.isEmpty {
@@ -184,12 +209,12 @@ public struct MangaDetailView: View {
             }
 
             // Sync fresh from source
-            if let src = extensionManager.getSource(id: manga.sourceId) {
-                if let freshDetails = try? await src.getMangaDetails(manga: manga) {
+            if let src = extensionManager.getSource(id: currentManga.sourceId) {
+                if let freshDetails = try? await src.getMangaDetails(manga: currentManga) {
                     self.manga = freshDetails
                     _ = try? await mangaRepo.upsert(freshDetails)
                 }
-                if let freshChapters = try? await src.getChapterList(manga: manga) {
+                if let freshChapters = try? await src.getChapterList(manga: currentManga) {
                     self.chapters = (try? await chapterRepo.syncChapters(freshChapters, forMangaId: mangaId)) ?? freshChapters
                 }
             }
@@ -199,8 +224,13 @@ public struct MangaDetailView: View {
 
     private func toggleLibraryStatus() {
         isInLibrary.toggle()
-        guard let id = manga.id else { return }
         Task {
+            if manga.id == nil {
+                if let saved = try? await mangaRepo.upsert(manga) {
+                    self.manga = saved
+                }
+            }
+            guard let id = manga.id else { return }
             try? await mangaRepo.setInLibrary(mangaId: id, inLibrary: isInLibrary)
         }
     }
@@ -209,7 +239,7 @@ public struct MangaDetailView: View {
         guard let chId = chapter.id else { return }
         let newStatus = !chapter.read
         Task {
-            try? await chapterRepo.updateProgress(chapterId: chId, lastPageRead: chapter.lastPageRead, isRead: newStatus)
+            try? await chapterRepo.updateProgress(chapterId: chId, lastPageRead: chapter.lastPageRead, isRead: newStatus, logHistory: false)
             if let idx = chapters.firstIndex(where: { $0.id == chId }) {
                 chapters[idx].read = newStatus
             }

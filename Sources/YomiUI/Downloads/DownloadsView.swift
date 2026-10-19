@@ -8,38 +8,36 @@ public struct DownloadsView: View {
     public init() {}
 
     public var body: some View {
-        NavigationStack {
-            Group {
-                if downloadManager.queue.isEmpty {
-                    VStack(spacing: 12) {
-                        Spacer()
-                        Image(systemName: "arrow.down.circle")
-                            .font(.system(size: 48))
-                            .foregroundStyle(YomiTheme.textSecondary)
-                        Text("No Active Downloads")
-                            .font(.headline)
-                        Text("Downloaded chapters will appear here and can be read completely offline.")
-                            .font(.subheadline)
-                            .foregroundStyle(YomiTheme.textSecondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 32)
-                        Spacer()
-                    }
-                } else {
-                    List {
-                        Section("Download Queue") {
-                            ForEach(downloadManager.queue) { job in
-                                DownloadJobRow(job: job)
-                            }
+        Group {
+            if downloadManager.queue.isEmpty {
+                VStack(spacing: 12) {
+                    Spacer()
+                    Image(systemName: "arrow.down.circle")
+                        .font(.system(size: 48))
+                        .foregroundStyle(YomiTheme.textSecondary)
+                    Text("No Active Downloads")
+                        .font(.headline)
+                    Text("Downloaded chapters will appear here and can be read completely offline.")
+                        .font(.subheadline)
+                        .foregroundStyle(YomiTheme.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                    Spacer()
+                }
+            } else {
+                List {
+                    Section("Download Queue") {
+                        ForEach(downloadManager.queue) { job in
+                            DownloadJobRow(job: job)
                         }
                     }
-                    #if os(iOS)
-                    .listStyle(.insetGrouped)
-                    #endif
                 }
+                #if os(iOS)
+                .listStyle(.insetGrouped)
+                #endif
             }
-            .navigationTitle("Downloads")
         }
+        .navigationTitle("Downloads")
     }
 }
 

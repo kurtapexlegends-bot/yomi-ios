@@ -25,4 +25,13 @@ final class ExtensionBridgeTests: XCTestCase {
         XCTAssertNotNil(hashResult?.toString())
         XCTAssertEqual(hashResult?.toString().count, 64)
     }
+
+    func testMangaDexSourceManifest() {
+        let source = MangaDexSource()
+        XCTAssertEqual(source.manifest.id, MangaDexSource.sourceId)
+        XCTAssertEqual(source.manifest.name, "MangaDex")
+        XCTAssertEqual(source.manifest.lang, "en")
+        XCTAssertTrue(source.manifest.supportsLatest)
+        XCTAssertFalse(source.manifest.isNsfw)
+    }
 }
