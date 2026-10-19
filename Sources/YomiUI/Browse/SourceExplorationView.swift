@@ -85,10 +85,7 @@ public struct SourceExplorationView: View {
                     ScrollView {
                         LazyVGrid(columns: columns, spacing: 14) {
                             ForEach(mangas, id: \.stableId) { manga in
-                                var displayManga = manga
-                                if libraryMangaUrls.contains(manga.url) {
-                                    displayManga.inLibrary = true
-                                }
+                                let displayManga = resolvedManga(manga)
                                 NavigationLink(value: displayManga) {
                                     MangaCardView(manga: displayManga, onToggleLibrary: {
                                         loadLibraryUrls()
@@ -130,6 +127,14 @@ public struct SourceExplorationView: View {
         .navigationDestination(for: Manga.self) { manga in
             MangaDetailView(manga: manga)
         }
+    }
+
+    private func resolvedManga(_ manga: Manga) -> Manga {
+        var copy = manga
+        if libraryMangaUrls.contains(manga.url) {
+            copy.inLibrary = true
+        }
+        return copy
     }
 
     private func loadLibraryUrls() {
