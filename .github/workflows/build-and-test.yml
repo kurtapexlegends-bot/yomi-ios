@@ -41,17 +41,19 @@ jobs:
         xcodebuild build \
           -project Yomi.xcodeproj \
           -scheme Yomi \
+          -sdk iphonesimulator \
           -destination "generic/platform=iOS Simulator" \
           -configuration Release \
           -derivedDataPath derived_data_sim \
+          ONLY_ACTIVE_ARCH=NO \
           CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
 
-    - name: Package Simulator App (.zip for Appetize.io)
-      run: |
-        mkdir -p build_output
-        cd derived_data_sim/Build/Products/Release-iphonesimulator
-        zip -r -y ../../../../build_output/Yomi-Simulator.zip Yomi.app
-        cd ../../../..
+    - name: Upload Appetize Simulator Bundle (Drag & Drop into Appetize.io)
+      uses: actions/upload-artifact@v4
+      with:
+        name: Yomi-Appetize-Simulator
+        path: derived_data_sim/Build/Products/Release-iphonesimulator/Yomi.app
+        retention-days: 14
 
     - name: Build iOS Device App & Package IPA (for Sideloadly / AltStore)
       run: |
@@ -63,15 +65,16 @@ jobs:
           -derivedDataPath derived_data_device \
           CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
 
+        mkdir -p build_output
         cd derived_data_device/Build/Products/Release-iphoneos
         mkdir -p Payload
         cp -R Yomi.app Payload/
         zip -r -y ../../../../build_output/Yomi.ipa Payload
         cd ../../../..
 
-    - name: Upload Build Artifacts
+    - name: Upload Sideload IPA (For Sideloadly & AltStore)
       uses: actions/upload-artifact@v4
       with:
-        name: Yomi-App-Builds
-        path: build_output/
+        name: Yomi-Device-IPA
+        path: build_output/Yomi.ipa
         retention-days: 14

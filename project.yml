@@ -42,4 +42,5 @@ targets:
         CODE_SIGN_STYLE: Manual
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGNING_ALLOWED: NO
+        ONLY_ACTIVE_ARCH: NO
         GENERATE_INFOPLIST_KEY_UILaunchScreen_Generation: YES
