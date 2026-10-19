@@ -277,11 +277,12 @@ public final class JSExtension: SourceProtocol, @unchecked Sendable {
             return try await block()
         } catch YomiError.cloudflareChallengeRequired(let url) {
             let solved = await CloudflareSolver.shared.resolveChallenge(for: url)
-            if solved {
-                return try await block()
-            } else {
+            guard solved else {
                 throw YomiError.cloudflareChallengeRequired(url: url)
             }
+            // Give the shared URLSession a moment to observe the freshly synced clearance cookies.
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            return try await block()
         }
     }
 

@@ -75,6 +75,7 @@ extension ReaderViewController: UICollectionViewDataSource, UICollectionViewDele
         guard index >= 0 && index < pages.count else { return }
         guard let src = source else { return }
 
+        let generation = loadGeneration
         loadingIndices.insert(index)
         let page = pages[index]
 
@@ -88,13 +89,21 @@ extension ReaderViewController: UICollectionViewDataSource, UICollectionViewDele
                     data = try await src.getImageData(page: page)
                 }
 
+                // The chapter may have changed while the image was downloading.
+                guard self.loadGeneration == generation else { return }
+
                 let targetSize = self.view.bounds.width > 0 ? self.view.bounds.size : UIScreen.main.bounds.size
-                if let downsampled = ImageDownsampler.shared.downsample(data: data, to: targetSize) {
+                let downsampled: UIImage? = autoreleasepool {
+                    ImageDownsampler.shared.downsample(data: data, to: targetSize)
+                }
+                if let downsampled = downsampled {
                     self.pageImages[index] = downsampled
                 }
             } catch {
                 print("[ReaderViewController] Failed to load image at page \(index): \(error)")
             }
+
+            guard self.loadGeneration == generation else { return }
             self.loadingIndices.remove(index)
 
             // Safely update cell if visible without risking an invalid reloadItems crash
@@ -139,9 +148,9 @@ extension ReaderViewController: UICollectionViewDataSource, UICollectionViewDele
         }
     }
 
-    /// Releases decoded images outside active visible window (±6 pages) to prevent GPU memory saturation
+    /// Releases decoded images outside the active visible window (±3 pages) to prevent GPU memory saturation
     func pruneDistantPages(around currentIndex: Int) {
-        let keepWindow = 6
+        let keepWindow = 3
         let minIndex = max(0, currentIndex - keepWindow)
         let maxIndex = min(pages.count - 1, currentIndex + keepWindow)
 

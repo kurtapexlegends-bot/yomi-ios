@@ -10,8 +10,12 @@ public enum NetworkBridge {
         
         let nativeFetchBlock: @convention(block) (String, String?) -> [String: Any] = { urlString, optionsJson in
             var normalizedUrl = urlString
-            if normalizedUrl.contains("mangakakalot.com") {
-                normalizedUrl = normalizedUrl.replacingOccurrences(of: "mangakakalot.com", with: "www.mangakakalot.gg")
+            if normalizedUrl.contains("mangakakalot") {
+                // The legacy .com domain is dead (522) and the canonical host is www.mangakakalot.gg.
+                normalizedUrl = normalizedUrl
+                    .replacingOccurrences(of: "://www.mangakakalot.com", with: "://www.mangakakalot.gg")
+                    .replacingOccurrences(of: "://mangakakalot.com", with: "://www.mangakakalot.gg")
+                    .replacingOccurrences(of: "://mangakakalot.gg", with: "://www.mangakakalot.gg")
             }
 
             guard let url = URL(string: normalizedUrl) else {
@@ -71,15 +75,26 @@ public enum NetworkBridge {
                 }
 
                 let bodyString = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                
-                // Cloudflare challenge detection
-                let isCloudflare = (statusCode == 403 || statusCode == 503) &&
-                    (bodyString.contains("cf-browser-verification") ||
-                     bodyString.contains("challenge-platform") ||
-                     bodyString.contains("Just a moment...") ||
-                     bodyString.contains("Attention Required") ||
-                     headersMap["cf-mitigated"] == "challenge" ||
-                     (headersMap["server"]?.contains("cloudflare") == true && bodyString.contains("challenges.cloudflare.com")))
+                let loweredBody = bodyString.lowercased()
+                let serverHeader = headersMap["server"]?.lowercased() ?? ""
+                let isMitigatedChallenge = headersMap["cf-mitigated"]?.lowercased() == "challenge"
+                let challengeMarkers = [
+                    "cf-browser-verification",
+                    "challenge-platform",
+                    "just a moment",
+                    "attention required",
+                    "enable javascript and cookies",
+                    "challenges.cloudflare.com",
+                    "cf_chl_opt",
+                    "cf-chl"
+                ]
+                let hasChallengeMarker = challengeMarkers.contains { loweredBody.contains($0) }
+
+                // Cloudflare challenge detection. MangaKakalot answers with an empty 403 body and
+                // only the `cf-mitigated: challenge` header, so header-based detection is required.
+                let isCloudflare = isMitigatedChallenge ||
+                    (serverHeader.contains("cloudflare") && (statusCode == 403 || statusCode == 429 || statusCode == 503)) ||
+                    ((statusCode == 403 || statusCode == 429 || statusCode == 503) && hasChallengeMarker)
 
                 resultDict = [
                     "status": statusCode,
@@ -102,6 +117,9 @@ public enum NetworkBridge {
         function fetch(url, options = {}) {
             return new Promise((resolve, reject) => {
                 const resp = __yomi_nativeFetch(url, JSON.stringify(options));
+                if (resp.status === undefined) {
+                    return reject(new Error("Network request timed out"));
+                }
                 if (resp.error) {
                     return reject(new Error(resp.error));
                 }

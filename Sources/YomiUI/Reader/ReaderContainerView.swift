@@ -24,6 +24,7 @@ public struct ReaderContainerView: View {
     @State private var tapZoneLayout: TapZoneLayout = .leftRight
     @State private var isLoading: Bool = true
     @State private var errorMessage: String? = nil
+    @State private var localSource: (any SourceProtocol)? = nil
 
     private let chapterRepo = ChapterRepository()
     private let downloadManager = DownloadManager.shared
@@ -47,7 +48,7 @@ public struct ReaderContainerView: View {
             } else if !pages.isEmpty {
                 ReaderBridgeView(
                     pages: pages,
-                    source: extensionManager.getSource(id: manga.sourceId),
+                    source: localSource ?? extensionManager.getSource(id: manga.sourceId),
                     viewer: viewer,
                     isAutocropEnabled: isAutocropEnabled,
                     isInvertColorsEnabled: isInvertColorsEnabled,
@@ -153,14 +154,17 @@ public struct ReaderContainerView: View {
 
     private func loadPages() {
         isLoading = true
+        localSource = nil
         Task { @MainActor in
             // Check if downloaded .cbz archive exists
             if let chId = chapter.id, let mId = manga.id,
                let cbzURL = downloadManager.getDownloadedCBZURL(chapterId: chId, mangaId: mId),
                FileManager.default.fileExists(atPath: cbzURL.path) {
-                if let localPages = try? CBZArchiver.readCBZPages(from: cbzURL), !localPages.isEmpty {
-                    self.pages = localPages
-                    self.currentPage = max(0, min(chapter.lastPageRead, localPages.count - 1))
+                if let local = try? LocalCBZSource(archiveURL: cbzURL), !local.pages.isEmpty {
+                    self.localSource = local
+                    self.pages = local.pages
+                    self.currentPage = max(0, min(chapter.lastPageRead, local.pages.count - 1))
+                    self.errorMessage = nil
                     self.isLoading = false
                     return
                 }
@@ -199,8 +203,8 @@ public struct ReaderContainerView: View {
                 try? await chapterRepo.updateProgress(chapterId: chId, lastPageRead: newPage, isRead: isComplete)
                 cloudSync.recordProgress(mangaUrl: manga.url, chapterUrl: chapter.url, page: newPage, isRead: isComplete)
 
-                // Sync to AniList if chapter completed
-                if isComplete && AniListClient.shared.isLoggedIn {
+                // Sync to AniList if chapter completed (guard non-finite values to avoid Int64 traps)
+                if isComplete && AniListClient.shared.isLoggedIn && chapter.chapterNumber.isFinite {
                     try? await AniListClient.shared.updateProgress(
                         mediaId: Int64(chapter.chapterNumber),
                         chapterProgress: Int(chapter.chapterNumber),
@@ -310,11 +314,20 @@ struct ReaderBridgeView: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: ReaderViewController, context: Context) {
+        context.coordinator.parent = self
         uiViewController.source = source
-        uiViewController.viewer = viewer
-        uiViewController.isAutocropEnabled = isAutocropEnabled
-        uiViewController.isInvertColorsEnabled = isInvertColorsEnabled
-        uiViewController.customBrightness = customBrightness
+        if uiViewController.viewer != viewer {
+            uiViewController.viewer = viewer
+        }
+        if uiViewController.isAutocropEnabled != isAutocropEnabled {
+            uiViewController.isAutocropEnabled = isAutocropEnabled
+        }
+        if uiViewController.isInvertColorsEnabled != isInvertColorsEnabled {
+            uiViewController.isInvertColorsEnabled = isInvertColorsEnabled
+        }
+        if uiViewController.customBrightness != customBrightness {
+            uiViewController.customBrightness = customBrightness
+        }
         uiViewController.tapZoneLayout = tapZoneLayout
 
         // Synchronize page list when chapter updates

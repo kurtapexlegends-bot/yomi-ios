@@ -126,6 +126,11 @@ let package = Package(
             name: "YomiExtensionsTests",
             dependencies: ["YomiExtensions", "YomiCore"],
             path: "Tests/YomiExtensionsTests"
+        ),
+        .testTarget(
+            name: "YomiDownloadTests",
+            dependencies: ["YomiDownload", "YomiCore"],
+            path: "Tests/YomiDownloadTests"
         )
     ]
 )

@@ -15,10 +15,11 @@ public struct ExtensionStoreView: View {
     @State private var errorMessage: String?
     @State private var isShowingErrorAlert: Bool = false
     @State private var installingPackageIds: Set<Int64> = []
+    @State private var selectedVariantLanguages: [String: String] = [:]
 
     private let repoRepo = ExtensionRepoRepository()
     private let repoManager = RepoManager.shared
-    private let extensionManager = ExtensionManager.shared
+    @State private var extensionManager = ExtensionManager.shared
 
     public init() {}
 
@@ -34,9 +35,23 @@ public struct ExtensionStoreView: View {
             }
             return matchesLang && (
                 pkg.name.localizedCaseInsensitiveContains(query) ||
-                pkg.lang.localizedCaseInsensitiveContains(query)
+                pkg.lang.localizedCaseInsensitiveContains(query) ||
+                (pkg.packageName?.localizedCaseInsensitiveContains(query) ?? false) ||
+                pkg.baseUrl.localizedCaseInsensitiveContains(query)
             )
         }
+    }
+
+    /// One row per extension package, with all of its language variants collapsed underneath.
+    private var groupedPackages: [ExtensionCatalogGroup] {
+        ExtensionCatalog.group(filteredPackages)
+    }
+
+    private func variantLanguageBinding(for group: ExtensionCatalogGroup) -> Binding<String> {
+        Binding(
+            get: { selectedVariantLanguages[group.id] ?? group.defaultLanguage },
+            set: { selectedVariantLanguages[group.id] = $0 }
+        )
     }
 
     public var body: some View {
@@ -88,7 +103,7 @@ public struct ExtensionStoreView: View {
                 Section {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
-                            ForEach(availableLanguages.prefix(12), id: \.self) { lang in
+                            ForEach(availableLanguages, id: \.self) { lang in
                                 Button {
                                     selectedLanguage = lang
                                 } label: {
@@ -140,15 +155,17 @@ public struct ExtensionStoreView: View {
                         .font(.subheadline)
                         .foregroundStyle(YomiTheme.textSecondary)
                 } else {
-                    ForEach(filteredPackages) { pkg in
-                        let isInstalled = extensionManager.installedSources.contains(where: { $0.manifest.id == pkg.id })
-                        let isInstalling = installingPackageIds.contains(pkg.id)
-
-                        ExtensionPackageRow(
-                            pkg: pkg,
-                            isInstalled: isInstalled,
-                            isInstalling: isInstalling,
-                            onInstall: {
+                    ForEach(groupedPackages) { group in
+                        ExtensionGroupRow(
+                            group: group,
+                            selectedLanguage: variantLanguageBinding(for: group),
+                            isInstalled: { pkg in
+                                extensionManager.installedSources.contains(where: { $0.manifest.id == pkg.id })
+                            },
+                            isInstalling: { pkg in
+                                installingPackageIds.contains(pkg.id)
+                            },
+                            onInstall: { pkg in
                                 installPackage(pkg)
                             }
                         )
@@ -156,7 +173,7 @@ public struct ExtensionStoreView: View {
                 }
             } header: {
                 HStack {
-                    Text("Available Extensions (\(filteredPackages.count))")
+                    Text("Available Extensions (\(groupedPackages.count) packages)")
                     Spacer()
                     if isLoading {
                         ProgressView()
@@ -267,17 +284,27 @@ public struct ExtensionStoreView: View {
     }
 }
 
-// MARK: - Extension Package Row View
+// MARK: - Extension Group Row View
 
-struct ExtensionPackageRow: View {
-    let pkg: RemoteExtensionPackage
-    let isInstalled: Bool
-    let isInstalling: Bool
-    let onInstall: () -> Void
+/// One row per extension package. When a package ships multiple language sources (e.g. Akuma
+/// with 27 languages) they collapse here behind a compact language menu.
+struct ExtensionGroupRow: View {
+    let group: ExtensionCatalogGroup
+    @Binding var selectedLanguage: String
+    let isInstalled: (RemoteExtensionPackage) -> Bool
+    let isInstalling: (RemoteExtensionPackage) -> Bool
+    let onInstall: (RemoteExtensionPackage) -> Void
+
+    private var activeVariant: RemoteExtensionPackage? {
+        if let match = group.variants.first(where: { $0.lang.caseInsensitiveCompare(selectedLanguage) == .orderedSame }) {
+            return match
+        }
+        return group.defaultVariant
+    }
 
     var body: some View {
         HStack(spacing: 12) {
-            AsyncImage(url: URL(string: pkg.iconUrl ?? "")) { phase in
+            AsyncImage(url: URL(string: group.iconUrl ?? "")) { phase in
                 switch phase {
                 case .success(let img):
                     img.resizable().aspectRatio(contentMode: .fit)
@@ -292,24 +319,58 @@ struct ExtensionPackageRow: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(pkg.name)
+                Text(group.name)
                     .font(.subheadline.bold())
                     .foregroundStyle(YomiTheme.textPrimary)
                     .lineLimit(1)
 
                 HStack(spacing: 6) {
-                    Text(pkg.lang.uppercased())
-                        .font(.caption2.bold())
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(YomiTheme.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                    if group.variants.count > 1 {
+                        Menu {
+                            ForEach(group.variants) { variant in
+                                Button {
+                                    selectedLanguage = variant.lang
+                                } label: {
+                                    if variant.lang.caseInsensitiveCompare(activeVariant?.lang ?? "") == .orderedSame {
+                                        Label(variant.lang.uppercased(), systemImage: "checkmark")
+                                    } else {
+                                        Text(variant.lang.uppercased())
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 3) {
+                                Text(activeVariant?.lang.uppercased() ?? "EN")
+                                    .font(.caption2.bold())
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 8, weight: .bold))
+                            }
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(YomiTheme.surface)
+                            .clipShape(Capsule())
+                        }
+                    } else {
+                        Text(activeVariant?.lang.uppercased() ?? "EN")
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(YomiTheme.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                    }
 
-                    Text("v\(pkg.version)")
+                    Text("v\(activeVariant?.version ?? "1.0.0")")
                         .font(.caption2)
                         .foregroundStyle(YomiTheme.textSecondary)
 
-                    if pkg.isNsfw {
+                    if group.variants.count > 1 {
+                        Text("\(group.variants.count) languages")
+                            .font(.caption2)
+                            .foregroundStyle(YomiTheme.textSecondary)
+                            .lineLimit(1)
+                    }
+
+                    if group.isNsfw {
                         Text("18+")
                             .font(.caption2.bold())
                             .padding(.horizontal, 4)
@@ -323,22 +384,24 @@ struct ExtensionPackageRow: View {
 
             Spacer()
 
-            if isInstalled {
-                Button("Installed") {}
+            if let variant = activeVariant {
+                if isInstalled(variant) {
+                    Button("Installed") {}
+                        .font(.caption.bold())
+                        .buttonStyle(.bordered)
+                        .disabled(true)
+                } else if isInstalling(variant) {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                        .frame(width: 60)
+                } else {
+                    Button("Install") {
+                        onInstall(variant)
+                    }
                     .font(.caption.bold())
-                    .buttonStyle(.bordered)
-                    .disabled(true)
-            } else if isInstalling {
-                ProgressView()
-                    .scaleEffect(0.8)
-                    .frame(width: 60)
-            } else {
-                Button("Install") {
-                    onInstall()
+                    .buttonStyle(.borderedProminent)
+                    .tint(YomiTheme.accent)
                 }
-                .font(.caption.bold())
-                .buttonStyle(.borderedProminent)
-                .tint(YomiTheme.accent)
             }
         }
         .padding(.vertical, 4)

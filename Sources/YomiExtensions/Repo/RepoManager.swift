@@ -11,6 +11,10 @@ public struct RemoteExtensionPackage: Identifiable, Codable, Sendable {
     public var version: String
     public var scriptUrl: String
     public var isNsfw: Bool
+    /// Identifier of the parent extension package (e.g. `eu.kanade.tachiyomi.extension.all.akuma`).
+    /// Every language variant of one extension shares this value, which lets the store group them
+    /// into a single row instead of listing dozens of identical names.
+    public var packageName: String?
 
     public init(
         id: Int64,
@@ -20,7 +24,8 @@ public struct RemoteExtensionPackage: Identifiable, Codable, Sendable {
         iconUrl: String? = nil,
         version: String = "1.0.0",
         scriptUrl: String,
-        isNsfw: Bool = false
+        isNsfw: Bool = false,
+        packageName: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -30,6 +35,7 @@ public struct RemoteExtensionPackage: Identifiable, Codable, Sendable {
         self.version = version
         self.scriptUrl = scriptUrl
         self.isNsfw = isNsfw
+        self.packageName = packageName
     }
 }
 
@@ -235,7 +241,8 @@ public final class RepoManager: @unchecked Sendable {
                         iconUrl: iconUrl,
                         version: versionName,
                         scriptUrl: scriptUrl,
-                        isNsfw: isNsfw
+                        isNsfw: isNsfw,
+                        packageName: pkgName
                     ))
                 }
             } else {
@@ -249,7 +256,8 @@ public final class RepoManager: @unchecked Sendable {
                     iconUrl: iconUrl,
                     version: versionName,
                     scriptUrl: scriptUrl,
-                    isNsfw: isNsfw
+                    isNsfw: isNsfw,
+                    packageName: pkgName
                 ))
             }
         }

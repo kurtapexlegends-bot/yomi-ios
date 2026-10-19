@@ -137,13 +137,16 @@ public struct CloudflareSolverSheet: View {
     public var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                Text("Please solve the Cloudflare verification challenge to continue.")
+                Text(solver.statusMessage ?? "Please solve the Cloudflare verification challenge to continue.")
                     .font(.caption)
                     .foregroundStyle(YomiTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
                     .padding(.vertical, 8)
 
                 if let url = solver.activeChallengeUrl {
                     CloudflareWebView(url: url)
+                        .id(url.absoluteString)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     Spacer()
@@ -180,10 +183,15 @@ public struct CloudflareWebView: UIViewRepresentable {
         self.url = url
     }
 
+    public final class Coordinator {
+        var loadedURL: URL?
+    }
+
+    public func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     public func makeUIView(context: Context) -> WKWebView {
-        if let existing = CloudflareSolver.shared.activeWebView {
-            return existing
-        }
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
         config.defaultWebpagePreferences.allowsContentJavaScript = true
@@ -195,13 +203,25 @@ public struct CloudflareWebView: UIViewRepresentable {
         webView.customUserAgent = NetworkBridge.defaultUserAgent
         webView.navigationDelegate = CloudflareSolver.shared
         CloudflareSolver.shared.activeWebView = webView
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 30
-        webView.load(req)
+        load(url, in: webView, coordinator: context.coordinator)
         return webView
     }
 
-    public func updateUIView(_ uiView: WKWebView, context: Context) {}
+    public func updateUIView(_ uiView: WKWebView, context: Context) {
+        if context.coordinator.loadedURL != url {
+            load(url, in: uiView, coordinator: context.coordinator)
+        }
+    }
+
+    private func load(_ url: URL, in webView: WKWebView, coordinator: Coordinator) {
+        coordinator.loadedURL = url
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 30
+        request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
+        request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
+        CloudflareSolver.shared.activeWebView = webView
+        webView.load(request)
+    }
 }
 #else
 public struct CloudflareWebView: View {

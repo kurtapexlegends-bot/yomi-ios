@@ -17,7 +17,9 @@ public final class ReaderViewController: UIViewController {
 
     public var pages: [ReaderPage] = [] {
         didSet {
+            loadGeneration &+= 1
             pageImages.removeAll()
+            loadingIndices.removeAll()
             if isViewLoaded {
                 collectionView.reloadData()
             }
@@ -26,6 +28,7 @@ public final class ReaderViewController: UIViewController {
 
     public var viewer: MangaViewer = .defaultViewer {
         didSet {
+            guard oldValue != viewer else { return }
             if isViewLoaded {
                 configureLayout()
             }
@@ -34,6 +37,7 @@ public final class ReaderViewController: UIViewController {
 
     public var isAutocropEnabled: Bool = false {
         didSet {
+            guard oldValue != isAutocropEnabled else { return }
             if isViewLoaded {
                 collectionView.reloadData()
             }
@@ -43,12 +47,17 @@ public final class ReaderViewController: UIViewController {
     public var tapZoneLayout: TapZoneLayout = .leftRight
     public var customBrightness: CGFloat = 1.0 {
         didSet {
+            guard oldValue != customBrightness else { return }
             brightnessOverlay.alpha = max(0, min(0.9, 1.0 - customBrightness))
         }
     }
     public var isInvertColorsEnabled: Bool = false {
         didSet {
-            collectionView.layer.compositingFilter = isInvertColorsEnabled ? "differenceBlendMode" : nil
+            guard oldValue != isInvertColorsEnabled else { return }
+            // This property is assigned by the SwiftUI bridge before viewDidLoad; touching
+            // collectionView then would trap on a nil implicitly-unwrapped optional.
+            guard isViewLoaded else { return }
+            applyInvertColors()
         }
     }
 
@@ -58,6 +67,8 @@ public final class ReaderViewController: UIViewController {
     let brightnessOverlay = UIView()
     var pageImages: [Int: UIImage] = [:]
     var loadingIndices: Set<Int> = []
+    /// Incremented whenever `pages` changes so stale async loads cannot write into a new chapter.
+    var loadGeneration: Int = 0
     public var source: (any SourceProtocol)?
 
     public override func viewDidLoad() {
@@ -67,6 +78,14 @@ public final class ReaderViewController: UIViewController {
         setupCollectionView()
         setupBrightnessOverlay()
         setupGestures()
+
+        // Apply reader settings that may have been assigned before the view existed.
+        applyInvertColors()
+        brightnessOverlay.alpha = max(0, min(0.9, 1.0 - customBrightness))
+    }
+
+    private func applyInvertColors() {
+        collectionView.layer.compositingFilter = isInvertColorsEnabled ? "differenceBlendMode" : nil
     }
 
     private func setupCollectionView() {

@@ -42,20 +42,25 @@ public struct ReaderPage: Identifiable, Hashable, Codable, Sendable {
     public var url: String
     public var imageUrl: String?
     public var headers: [String: String]
+    /// Absolute path of a standalone local image file, when the page is not backed by a source.
     public var localPath: String?
+    /// Entry path inside a local .cbz archive (e.g. "001.jpg") when the page belongs to a download.
+    public var archiveEntry: String?
 
     public init(
         index: Int,
         url: String,
         imageUrl: String? = nil,
         headers: [String: String] = [:],
-        localPath: String? = nil
+        localPath: String? = nil,
+        archiveEntry: String? = nil
     ) {
         self.index = index
         self.url = url
         self.imageUrl = imageUrl
         self.headers = headers
         self.localPath = localPath
+        self.archiveEntry = archiveEntry
     }
 }
 

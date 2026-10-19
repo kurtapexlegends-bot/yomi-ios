@@ -78,7 +78,8 @@ public enum CBZArchiver {
                 index: index,
                 url: "\(archiveURL.path)#\(entry.path)",
                 imageUrl: "\(archiveURL.path)#\(entry.path)",
-                localPath: archiveURL.path
+                localPath: nil,
+                archiveEntry: entry.path
             )
         }
     }

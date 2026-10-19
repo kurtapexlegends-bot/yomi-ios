@@ -18,11 +18,12 @@ public final class ImageDownsampler: @unchecked Sendable {
 
     /// Downsamples raw image data to target bounding point size before memory decoding.
     public func downsample(data: Data, to pointSize: CGSize, scale: CGFloat = 2.0) -> UIImage? {
-        guard pointSize.width > 0, pointSize.height > 0 else {
-            return UIImage(data: data)
+        guard pointSize.width > 0, pointSize.height > 0, !data.isEmpty else {
+            return nil
         }
 
-        let cacheKey = "\(data.count)_\(Int(pointSize.width))x\(Int(pointSize.height))" as NSString
+        // Include the content hash so two different images of equal byte size can never collide.
+        let cacheKey = "\(data.hashValue)_\(data.count)_\(Int(pointSize.width))x\(Int(pointSize.height))" as NSString
         if let cached = memoryCache.object(forKey: cacheKey) {
             return cached
         }
@@ -32,19 +33,30 @@ public final class ImageDownsampler: @unchecked Sendable {
             return nil
         }
 
-        var maxDimensionInPixels = max(pointSize.width, pointSize.height) * scale
+        let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any]
+        let pixelWidth = properties?[kCGImagePropertyPixelWidth] as? CGFloat
+        let pixelHeight = properties?[kCGImagePropertyPixelHeight] as? CGFloat
 
-        // Adaptively scale tall Webtoon strips so width maintains native viewport pixel density
-        if let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
-           let pixelWidth = properties[kCGImagePropertyPixelWidth] as? CGFloat,
-           let pixelHeight = properties[kCGImagePropertyPixelHeight] as? CGFloat,
-           pixelWidth > 0 {
-            let aspect = pixelHeight / pixelWidth
-            if aspect > 1.8 {
-                let targetWidthInPixels = pointSize.width * scale
-                maxDimensionInPixels = max(maxDimensionInPixels, targetWidthInPixels * aspect)
-            }
+        // Compute a bounded target size: viewport-aware, with a hard pixel budget so
+        // 4K webtoon long strips can never allocate hundreds of MB at once.
+        let targetPixelSize: CGSize
+        if let pixelWidth = pixelWidth, let pixelHeight = pixelHeight, pixelWidth > 0, pixelHeight > 0 {
+            targetPixelSize = ReaderImageSizing.targetPixelSize(
+                nativeWidth: pixelWidth,
+                nativeHeight: pixelHeight,
+                viewport: pointSize,
+                scale: scale
+            )
+        } else {
+            let fallbackSide = max(pointSize.width, pointSize.height) * scale
+            targetPixelSize = CGSize(width: fallbackSide, height: fallbackSide)
         }
+
+        guard targetPixelSize.width > 0, targetPixelSize.height > 0 else {
+            return nil
+        }
+
+        let maxDimensionInPixels = max(targetPixelSize.width, targetPixelSize.height)
 
         let downsampleOptions: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
