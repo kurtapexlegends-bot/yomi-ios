@@ -92,7 +92,7 @@ public final class ZoomablePageScrollView: UIScrollView, UIScrollViewDelegate {
     }
 
     private func updateImageFrame() {
-        guard let img = imageView.image, bounds.width > 0, bounds.height > 0 else { return }
+        guard let img = imageView.image, img.size.width > 0, img.size.height > 0, bounds.width > 0, bounds.height > 0 else { return }
         let aspect = img.size.width / img.size.height
         let viewAspect = bounds.width / bounds.height
 

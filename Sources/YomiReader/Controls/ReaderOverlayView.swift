@@ -108,13 +108,14 @@ public struct ReaderOverlayView: View {
 
                             Slider(
                                 value: Binding(
-                                    get: { Double(currentPage) },
+                                    get: { Double(min(max(0, currentPage), max(0, totalPages - 1))) },
                                     set: { currentPage = Int($0) }
                                 ),
-                                in: 0...Double(max(0, totalPages - 1)),
+                                in: 0...Double(max(1, totalPages - 1)),
                                 step: 1
                             )
                             .tint(.white)
+                            .disabled(totalPages <= 1)
 
                             Button(action: onNextChapter) {
                                 Image(systemName: "forward.fill")

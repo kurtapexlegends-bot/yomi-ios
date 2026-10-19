@@ -172,9 +172,24 @@ public final class ReaderViewController: UIViewController {
     public func scrollToPage(index: Int, animated: Bool) {
         guard index >= 0 && index < pages.count else { return }
         currentPageIndex = index
+        guard isViewLoaded, let cv = collectionView else { return }
+
+        guard cv.numberOfSections > 0, cv.numberOfItems(inSection: 0) > index else {
+            // Collection view has not finished layout yet; schedule on next main loop cycle
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self, self.isViewLoaded, let cv = self.collectionView else { return }
+                if cv.numberOfSections > 0 && cv.numberOfItems(inSection: 0) > index {
+                    let indexPath = IndexPath(item: index, section: 0)
+                    let scrollPosition: UICollectionView.ScrollPosition = (self.viewer == .webtoon || self.viewer == .vertical) ? .top : .centeredHorizontally
+                    cv.scrollToItem(at: indexPath, at: scrollPosition, animated: animated)
+                }
+            }
+            return
+        }
+
         let indexPath = IndexPath(item: index, section: 0)
         let scrollPosition: UICollectionView.ScrollPosition = (viewer == .webtoon || viewer == .vertical) ? .top : .centeredHorizontally
-        collectionView.scrollToItem(at: indexPath, at: scrollPosition, animated: animated)
+        cv.scrollToItem(at: indexPath, at: scrollPosition, animated: animated)
         delegate?.readerViewController(self, didChangePage: currentPageIndex, totalPages: pages.count)
     }
 

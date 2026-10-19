@@ -42,6 +42,13 @@ public protocol SourceProtocol: Sendable {
     func getChapterList(manga: Manga) async throws -> [Chapter]
     func getPageList(chapter: Chapter) async throws -> [ReaderPage]
     func getImageData(page: ReaderPage) async throws -> Data
+    func getFilters() -> [Filter]
+}
+
+public extension SourceProtocol {
+    func getFilters() -> [Filter] {
+        return []
+    }
 }
 
 /// Metadata describing a remote community extension repository.

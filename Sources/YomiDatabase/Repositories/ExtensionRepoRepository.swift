@@ -11,12 +11,24 @@ public final class ExtensionRepoRepository: Sendable {
 
     /// Fetches all added third-party extension repositories.
     public func getAllRepos() async throws -> [ExtensionRepo] {
-        try await dbManager.read { db in
+        let repos = try await dbManager.read { db in
             try ExtensionRepoRecord
                 .order(Column("name").collating(.localizedCaseInsensitiveCompare))
                 .fetchAll(db)
                 .map { $0.toDomain() }
         }
+        if repos.isEmpty {
+            let defaultRepo = ExtensionRepo(
+                name: "Keiyoushi",
+                url: "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json",
+                websiteUrl: "https://keiyoushi.github.io",
+                sourcesCount: 0,
+                lastChecked: Date()
+            )
+            try await upsertRepo(defaultRepo)
+            return [defaultRepo]
+        }
+        return repos
     }
 
     /// Upserts a repository entry into the database.

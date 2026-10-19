@@ -18,6 +18,8 @@ extension ReaderViewController: UICollectionViewDataSource, UICollectionViewDele
             for: indexPath
         ) as! ReaderCollectionViewCell
 
+        guard indexPath.item < pages.count else { return cell }
+
         let page = pages[indexPath.item]
         let cachedImage = pageImages[indexPath.item]
         let isLoading = cachedImage == nil && loadingIndices.contains(indexPath.item)
@@ -48,15 +50,20 @@ extension ReaderViewController: UICollectionViewDataSource, UICollectionViewDele
         layout collectionViewLayout: UICollectionViewLayout,
         sizeForItemAt indexPath: IndexPath
     ) -> CGSize {
-        let width = collectionView.bounds.width
-        let height = collectionView.bounds.height
+        let baseBounds = collectionView.bounds.width > 0 ? collectionView.bounds : (view.bounds.width > 0 ? view.bounds : UIScreen.main.bounds)
+        let width = max(baseBounds.width, 1)
+        let height = max(baseBounds.height, 1)
+
+        guard indexPath.item < pages.count else {
+            return CGSize(width: width, height: height)
+        }
 
         if viewer == .webtoon {
-            if let image = pageImages[indexPath.item] {
+            if let image = pageImages[indexPath.item], image.size.width > 0 {
                 let aspect = image.size.height / image.size.width
-                return CGSize(width: width, height: width * aspect)
+                return CGSize(width: width, height: max(1, width * aspect))
             }
-            return CGSize(width: width, height: height * 0.8)
+            return CGSize(width: width, height: max(1, height * 0.8))
         }
 
         return CGSize(width: width, height: height)
@@ -81,14 +88,33 @@ extension ReaderViewController: UICollectionViewDataSource, UICollectionViewDele
                     data = try await src.getImageData(page: page)
                 }
 
-                if let downsampled = ImageDownsampler.shared.downsample(data: data, to: self.view.bounds.size) {
+                let targetSize = self.view.bounds.width > 0 ? self.view.bounds.size : UIScreen.main.bounds.size
+                if let downsampled = ImageDownsampler.shared.downsample(data: data, to: targetSize) {
                     self.pageImages[index] = downsampled
                 }
             } catch {
                 print("[ReaderViewController] Failed to load image at page \(index): \(error)")
             }
             self.loadingIndices.remove(index)
-            self.collectionView.reloadItems(at: [IndexPath(item: index, section: 0)])
+
+            // Safely update cell if visible without risking an invalid reloadItems crash
+            if self.isViewLoaded, let cv = self.collectionView {
+                let indexPath = IndexPath(item: index, section: 0)
+                if cv.numberOfSections > 0 && cv.numberOfItems(inSection: 0) > index {
+                    if let cell = cv.cellForItem(at: indexPath) as? ReaderCollectionViewCell, index < self.pages.count {
+                        cell.configure(
+                            page: self.pages[index],
+                            image: self.pageImages[index],
+                            isLoading: false,
+                            isWebtoon: self.viewer == .webtoon,
+                            autocrop: self.isAutocropEnabled
+                        )
+                        if self.viewer == .webtoon {
+                            cv.collectionViewLayout.invalidateLayout()
+                        }
+                    }
+                }
+            }
         }
     }
 

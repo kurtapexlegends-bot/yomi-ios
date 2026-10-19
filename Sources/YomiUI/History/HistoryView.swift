@@ -141,7 +141,7 @@ public struct HistoryView: View {
     }
 
     private func deleteItem(_ item: HistoryItem) {
-        Task {
+        Task { @MainActor in
             try? await historyRepo.deleteHistoryItem(id: item.id)
             if let idx = historyItems.firstIndex(where: { $0.id == item.id }) {
                 historyItems.remove(at: idx)
@@ -150,14 +150,14 @@ public struct HistoryView: View {
     }
 
     private func clearAll() {
-        Task {
+        Task { @MainActor in
             try? await historyRepo.clearAllHistory()
             historyItems.removeAll()
         }
     }
 
     private func resumeReading(for item: HistoryItem) {
-        Task {
+        Task { @MainActor in
             if let manga = try? await mangaRepo.getManga(id: item.mangaId),
                let chapter = try? await chapterRepo.getChapter(id: item.chapterId) {
                 self.activeMangaForReading = manga
@@ -167,7 +167,7 @@ public struct HistoryView: View {
     }
 
     private func openMangaDetail(for item: HistoryItem) {
-        Task {
+        Task { @MainActor in
             if let manga = try? await mangaRepo.getManga(id: item.mangaId) {
                 self.selectedMangaForDetail = manga
             }

@@ -153,14 +153,14 @@ public struct ReaderContainerView: View {
 
     private func loadPages() {
         isLoading = true
-        Task {
+        Task { @MainActor in
             // Check if downloaded .cbz archive exists
             if let chId = chapter.id, let mId = manga.id,
                let cbzURL = downloadManager.getDownloadedCBZURL(chapterId: chId, mangaId: mId),
                FileManager.default.fileExists(atPath: cbzURL.path) {
                 if let localPages = try? CBZArchiver.readCBZPages(from: cbzURL), !localPages.isEmpty {
                     self.pages = localPages
-                    self.currentPage = min(chapter.lastPageRead, localPages.count - 1)
+                    self.currentPage = max(0, min(chapter.lastPageRead, localPages.count - 1))
                     self.isLoading = false
                     return
                 }
@@ -172,7 +172,7 @@ public struct ReaderContainerView: View {
                     let fetchedPages = try await src.getPageList(chapter: chapter)
                     if !fetchedPages.isEmpty {
                         self.pages = fetchedPages
-                        self.currentPage = min(chapter.lastPageRead, fetchedPages.count - 1)
+                        self.currentPage = max(0, min(chapter.lastPageRead, fetchedPages.count - 1))
                         self.errorMessage = nil
                     } else {
                         self.pages = []
@@ -214,17 +214,15 @@ public struct ReaderContainerView: View {
 
     private func goToNextChapter() {
         guard let mId = manga.id else { return }
-        Task {
+        Task { @MainActor in
             let allChapters = (try? await chapterRepo.getChapters(forMangaId: mId)) ?? []
             if let currentIdx = allChapters.firstIndex(where: { $0.url == chapter.url }) {
                 // Chapters are sorted descending (latest first); next chronological is previous index
                 if currentIdx > 0 {
                     let nextCh = allChapters[currentIdx - 1]
-                    await MainActor.run {
-                        self.chapter = nextCh
-                        self.currentPage = 0
-                        loadPages()
-                    }
+                    self.chapter = nextCh
+                    self.currentPage = 0
+                    loadPages()
                 }
             }
         }
@@ -232,16 +230,14 @@ public struct ReaderContainerView: View {
 
     private func goToPreviousChapter() {
         guard let mId = manga.id else { return }
-        Task {
+        Task { @MainActor in
             let allChapters = (try? await chapterRepo.getChapters(forMangaId: mId)) ?? []
             if let currentIdx = allChapters.firstIndex(where: { $0.url == chapter.url }) {
                 if currentIdx < allChapters.count - 1 {
                     let prevCh = allChapters[currentIdx + 1]
-                    await MainActor.run {
-                        self.chapter = prevCh
-                        self.currentPage = 0
-                        loadPages()
-                    }
+                    self.chapter = prevCh
+                    self.currentPage = 0
+                    loadPages()
                 }
             }
         }
@@ -324,10 +320,14 @@ struct ReaderBridgeView: UIViewControllerRepresentable {
         // Synchronize page list when chapter updates
         if uiViewController.pages.map(\.url) != pages.map(\.url) {
             uiViewController.pages = pages
-            uiViewController.scrollToPage(index: currentPageIndex, animated: false)
+            if !pages.isEmpty && uiViewController.isViewLoaded {
+                uiViewController.scrollToPage(index: min(currentPageIndex, pages.count - 1), animated: false)
+            }
         } else if uiViewController.currentPageIndex != currentPageIndex {
             // Synchronize HUD scrubber scrub position
-            uiViewController.scrollToPage(index: currentPageIndex, animated: false)
+            if !pages.isEmpty && uiViewController.isViewLoaded {
+                uiViewController.scrollToPage(index: min(currentPageIndex, pages.count - 1), animated: false)
+            }
         }
     }
 

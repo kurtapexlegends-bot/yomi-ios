@@ -110,4 +110,27 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(updates.first?.mangaTitle, "In Library")
         XCTAssertEqual(updates.first?.chapterName, "Lib Chapter 1")
     }
+
+    func testKeiyoushiRepoSeededOnMigration() async throws {
+        let repoRepo = ExtensionRepoRepository(dbManager: dbManager)
+        let repos = try await repoRepo.getAllRepos()
+        XCTAssertFalse(repos.isEmpty)
+        XCTAssertTrue(repos.contains(where: { $0.name == "Keiyoushi" }))
+        XCTAssertTrue(repos.contains(where: { $0.url.contains("keiyoushi") }))
+    }
+
+    func testChapterDeduplicationOnSync() async throws {
+        let chapterRepo = ChapterRepository(dbManager: dbManager)
+        let manga = Manga(sourceId: 10001, url: "dedup-manga", title: "Dedup Manga", inLibrary: true)
+        let savedManga = try await mangaRepo.upsert(manga)
+        let mangaId = savedManga.id!
+
+        // Two chapters with identical URLs (common scraper bug / source anomaly)
+        let duplicate1 = Chapter(mangaId: mangaId, url: "duplicate-ch-url", name: "Chapter 1", chapterNumber: 1.0)
+        let duplicate2 = Chapter(mangaId: mangaId, url: "duplicate-ch-url", name: "Chapter 1 Duplicate", chapterNumber: 1.0)
+
+        let savedChapters = try await chapterRepo.syncChapters([duplicate1, duplicate2], forMangaId: mangaId)
+        XCTAssertEqual(savedChapters.count, 1)
+        XCTAssertEqual(savedChapters.first?.name, "Chapter 1")
+    }
 }

@@ -1,5 +1,6 @@
 import SwiftUI
 import YomiCore
+import YomiExtensions
 
 public enum AppTab: String, CaseIterable, Identifiable {
     case library = "Library"
@@ -27,6 +28,7 @@ public struct AppRootView: View {
     @State private var selectedTab: AppTab? = .library
     @State private var biometricManager = BiometricSecurityManager.shared
     @State private var privacyManager = PrivacyManager.shared
+    @State private var cloudflareSolver = CloudflareSolver.shared
 
     public init() {}
 
@@ -95,6 +97,9 @@ public struct AppRootView: View {
                     .ignoresSafeArea()
                     .transition(.opacity)
             }
+        }
+        .sheet(isPresented: $cloudflareSolver.isPresentingSolverSheet) {
+            CloudflareSolverSheet()
         }
     }
 

@@ -49,9 +49,6 @@ public struct BrowseView: View {
                     SourceExplorationView(source: source)
                 }
             }
-            .sheet(isPresented: $cloudflareSolver.isPresentingSolverSheet) {
-                CloudflareSolverSheet()
-            }
         }
     }
 }
@@ -132,21 +129,26 @@ struct SourcesListView: View {
 
 // MARK: - Cloudflare Solver Sheet
 
-struct CloudflareSolverSheet: View {
+public struct CloudflareSolverSheet: View {
     @State private var solver = CloudflareSolver.shared
 
-    var body: some View {
+    public init() {}
+
+    public var body: some View {
         NavigationStack {
-            VStack {
+            VStack(spacing: 0) {
                 Text("Please solve the Cloudflare verification challenge to continue.")
                     .font(.caption)
                     .foregroundStyle(YomiTheme.textSecondary)
-                    .padding(.top, 8)
+                    .padding(.vertical, 8)
 
                 if let url = solver.activeChallengeUrl {
                     CloudflareWebView(url: url)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
+                    Spacer()
                     ProgressView()
+                    Spacer()
                 }
             }
             .navigationTitle("Cloudflare Verification")
@@ -171,26 +173,41 @@ struct CloudflareSolverSheet: View {
 }
 
 #if canImport(UIKit)
-struct CloudflareWebView: UIViewRepresentable {
-    let url: URL
+public struct CloudflareWebView: UIViewRepresentable {
+    public let url: URL
 
-    func makeUIView(context: Context) -> WKWebView {
+    public init(url: URL) {
+        self.url = url
+    }
+
+    public func makeUIView(context: Context) -> WKWebView {
+        if let existing = CloudflareSolver.shared.activeWebView {
+            return existing
+        }
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
-        let webView = WKWebView(frame: .zero, configuration: config)
+        config.defaultWebpagePreferences.allowsContentJavaScript = true
+        config.preferences.javaScriptCanOpenWindowsAutomatically = true
+
+        let bounds = UIScreen.main.bounds
+        let initialFrame = bounds.width > 0 ? bounds : CGRect(x: 0, y: 0, width: 390, height: 844)
+        let webView = WKWebView(frame: initialFrame, configuration: config)
         webView.customUserAgent = NetworkBridge.defaultUserAgent
+        webView.navigationDelegate = CloudflareSolver.shared
+        CloudflareSolver.shared.activeWebView = webView
         var req = URLRequest(url: url)
         req.timeoutInterval = 30
         webView.load(req)
         return webView
     }
 
-    func updateUIView(_ uiView: WKWebView, context: Context) {}
+    public func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
 #else
-struct CloudflareWebView: View {
-    let url: URL
-    var body: some View {
+public struct CloudflareWebView: View {
+    public let url: URL
+    public init(url: URL) { self.url = url }
+    public var body: some View {
         Text("Cloudflare Solver")
     }
 }

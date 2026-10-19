@@ -78,7 +78,7 @@ public enum TriState: Int, Codable, Sendable {
 }
 
 /// Dynamic filter representation for sources.
-public enum Filter: Identifiable, Sendable {
+public enum Filter: Identifiable, Sendable, Equatable, Hashable {
     case text(id: String, name: String, state: String)
     case select(id: String, name: String, values: [String], selectedIndex: Int)
     case triState(id: String, name: String, state: TriState)
@@ -99,6 +99,19 @@ public enum Filter: Identifiable, Sendable {
         case .select(_, let name, _, _): return name
         case .triState(_, let name, _): return name
         case .sort(_, let name, _, _, _): return name
+        }
+    }
+
+    public var isDefault: Bool {
+        switch self {
+        case .text(_, _, let state):
+            return state.isEmpty
+        case .select(_, _, _, let selectedIndex):
+            return selectedIndex == 0
+        case .triState(_, _, let state):
+            return state == .ignored
+        case .sort(_, _, _, let selectedIndex, let ascending):
+            return selectedIndex == 0 && !ascending
         }
     }
 }

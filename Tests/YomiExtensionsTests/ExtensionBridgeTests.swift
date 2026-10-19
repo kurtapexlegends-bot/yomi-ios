@@ -137,4 +137,55 @@ final class ExtensionBridgeTests: XCTestCase {
         XCTAssertTrue(hasMangaPill, "ExtensionManager must register MangaPillSource")
         XCTAssertTrue(hasMangaDex, "ExtensionManager must register MangaDexSource")
     }
+
+    func testSourceFiltersAvailability() {
+        let pillSource = MangaPillSource()
+        let pillFilters = pillSource.getFilters()
+        XCTAssertEqual(pillFilters.count, 3)
+        XCTAssertEqual(pillFilters[0].id, "type")
+        XCTAssertEqual(pillFilters[1].id, "status")
+        XCTAssertEqual(pillFilters[2].id, "genre")
+        XCTAssertTrue(pillFilters.allSatisfy { $0.isDefault })
+
+        let dexSource = MangaDexSource()
+        let dexFilters = dexSource.getFilters()
+        XCTAssertEqual(dexFilters.count, 3)
+        XCTAssertEqual(dexFilters[0].id, "status")
+        XCTAssertEqual(dexFilters[1].id, "contentRating")
+        XCTAssertEqual(dexFilters[2].id, "sort")
+        XCTAssertTrue(dexFilters.allSatisfy { $0.isDefault })
+    }
+
+    func testMangakakalotScraperGeneration() {
+        let pkg = RemoteExtensionPackage(
+            id: 99999,
+            name: "MangaKakalot",
+            lang: "en",
+            baseUrl: "https://www.mangakakalot.gg",
+            scriptUrl: ""
+        )
+        let script = RepoManager.shared.generateScraperScript(for: pkg)
+        XCTAssertTrue(script.contains("/manga-list/hot-manga?page="))
+        XCTAssertTrue(script.contains("/manga-list/latest-manga?page="))
+        XCTAssertTrue(script.contains("/search/story/"))
+        XCTAssertTrue(script.contains("getFilters: function()"))
+        XCTAssertTrue(script.contains("type: 'select'"))
+    }
+
+    func testMangaDexUUIDExtraction() {
+        let regex = try? NSRegularExpression(pattern: "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+        let sampleUrls = [
+            "/title/f98660a0-81e2-499c-84e1-4c6e10096573",
+            "/title/f98660a0-81e2-499c-84e1-4c6e10096573/one-piece",
+            "https://mangadex.org/title/f98660a0-81e2-499c-84e1-4c6e10096573/one-piece"
+        ]
+        for url in sampleUrls {
+            let match = regex?.firstMatch(in: url, range: NSRange(url.startIndex..., in: url))
+            XCTAssertNotNil(match, "UUID regex must match \(url)")
+            if let match = match, let range = Range(match.range, in: url) {
+                XCTAssertEqual(String(url[range]), "f98660a0-81e2-499c-84e1-4c6e10096573")
+            }
+        }
+    }
 }
+

@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import YomiCore
 
 public enum SchemaMigrations {
     /// Registers all database schema migrations in chronological sequence.
@@ -152,6 +153,18 @@ public enum SchemaMigrations {
                     VALUES('delete', old.id, old.title, old.author, old.artist, old.description);
                 END;
             """)
+        }
+
+        // MARK: - v3: Seed Default Keiyoushi Repository
+        migrator.registerMigration("v3_seed_keiyoushi_repo") { db in
+            let defaultRepo = ExtensionRepo(
+                name: "Keiyoushi",
+                url: "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json",
+                websiteUrl: "https://keiyoushi.github.io",
+                sourcesCount: 0,
+                lastChecked: Date()
+            )
+            try ExtensionRepoRecord(repo: defaultRepo).insert(db, onConflict: .ignore)
         }
     }
 }

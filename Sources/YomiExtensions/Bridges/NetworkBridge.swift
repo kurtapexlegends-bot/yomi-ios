@@ -9,13 +9,26 @@ public enum NetworkBridge {
     public static func inject(into context: JSContext) {
         
         let nativeFetchBlock: @convention(block) (String, String?) -> [String: Any] = { urlString, optionsJson in
-            guard let url = URL(string: urlString) else {
+            var normalizedUrl = urlString
+            if normalizedUrl.contains("mangakakalot.com") {
+                normalizedUrl = normalizedUrl.replacingOccurrences(of: "mangakakalot.com", with: "www.mangakakalot.gg")
+            }
+
+            guard let url = URL(string: normalizedUrl) else {
                 return ["status": 400, "error": "Invalid URL string: \(urlString)"]
             }
 
             var request = URLRequest(url: url)
             request.timeoutInterval = 20
             request.setValue(defaultUserAgent, forHTTPHeaderField: "User-Agent")
+
+            // Forward clearance cookies stored in HTTPCookieStorage
+            if let cookies = HTTPCookieStorage.shared.cookies(for: url), !cookies.isEmpty {
+                let cookieHeaders = HTTPCookie.requestHeaderFields(with: cookies)
+                for (k, v) in cookieHeaders {
+                    request.setValue(v, forHTTPHeaderField: k)
+                }
+            }
 
             // Parse optional fetch options (headers, method, body)
             if let optionsJson = optionsJson,
@@ -63,7 +76,10 @@ public enum NetworkBridge {
                 let isCloudflare = (statusCode == 403 || statusCode == 503) &&
                     (bodyString.contains("cf-browser-verification") ||
                      bodyString.contains("challenge-platform") ||
-                     bodyString.contains("Just a moment..."))
+                     bodyString.contains("Just a moment...") ||
+                     bodyString.contains("Attention Required") ||
+                     headersMap["cf-mitigated"] == "challenge" ||
+                     (headersMap["server"]?.contains("cloudflare") == true && bodyString.contains("challenges.cloudflare.com")))
 
                 resultDict = [
                     "status": statusCode,

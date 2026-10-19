@@ -146,7 +146,7 @@ public struct UpdatesView: View {
     }
 
     private func openReader(for item: ChapterUpdateItem) {
-        Task {
+        Task { @MainActor in
             if let manga = try? await mangaRepo.getManga(id: item.mangaId),
                let chapter = try? await chapterRepo.getChapter(id: item.chapterId) {
                 self.activeMangaForReading = manga
@@ -156,7 +156,7 @@ public struct UpdatesView: View {
     }
 
     private func openMangaDetail(for item: ChapterUpdateItem) {
-        Task {
+        Task { @MainActor in
             if let manga = try? await mangaRepo.getManga(id: item.mangaId) {
                 self.selectedMangaForDetail = manga
             }
@@ -165,7 +165,7 @@ public struct UpdatesView: View {
 
     private func toggleReadStatus(_ item: ChapterUpdateItem) {
         let newStatus = !item.read
-        Task {
+        Task { @MainActor in
             try? await chapterRepo.updateProgress(chapterId: item.chapterId, lastPageRead: item.lastPageRead, isRead: newStatus, logHistory: false)
             if let idx = updates.firstIndex(where: { $0.chapterId == item.chapterId }) {
                 updates[idx].read = newStatus

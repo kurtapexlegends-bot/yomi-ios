@@ -68,6 +68,29 @@ public final class MangaDexSource: SourceProtocol, Sendable {
         return try await fetchMangaList(from: url.absoluteString)
     }
 
+    public func getFilters() -> [Filter] {
+        [
+            .select(
+                id: "status",
+                name: "Status",
+                values: ["All", "Ongoing", "Completed", "Hiatus", "Cancelled"],
+                selectedIndex: 0
+            ),
+            .select(
+                id: "contentRating",
+                name: "Content Rating",
+                values: ["Safe & Suggestive", "Safe Only", "Erotica", "All Ratings (incl. NSFW)"],
+                selectedIndex: 0
+            ),
+            .select(
+                id: "sort",
+                name: "Sort",
+                values: ["Most Popular", "Latest Upload", "Title", "Recently Added"],
+                selectedIndex: 0
+            )
+        ]
+    }
+
     public func searchManga(query: String, filters: [Filter], page: Int) async throws -> MangaPageResult {
         let offset = (max(1, page) - 1) * 24
         var components = URLComponents(string: "\(apiBase)/manga")!
@@ -75,13 +98,49 @@ public final class MangaDexSource: SourceProtocol, Sendable {
             URLQueryItem(name: "limit", value: "24"),
             URLQueryItem(name: "offset", value: "\(offset)"),
             URLQueryItem(name: "includes[]", value: "cover_art"),
-            URLQueryItem(name: "includes[]", value: "author"),
-            URLQueryItem(name: "contentRating[]", value: "safe"),
-            URLQueryItem(name: "contentRating[]", value: "suggestive")
+            URLQueryItem(name: "includes[]", value: "author")
         ]
-        if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            queryItems.append(URLQueryItem(name: "title", value: query))
+
+        var contentRatings = ["safe", "suggestive"]
+        var sortParam = ("followedCount", "desc")
+
+        for filter in filters {
+            switch filter {
+            case .select(let id, _, let values, let selectedIndex):
+                guard selectedIndex >= 0 && selectedIndex < values.count else { continue }
+                if id == "status" && selectedIndex > 0 {
+                    let val = values[selectedIndex].lowercased()
+                    queryItems.append(URLQueryItem(name: "status[]", value: val))
+                } else if id == "contentRating" {
+                    switch selectedIndex {
+                    case 1: contentRatings = ["safe"]
+                    case 2: contentRatings = ["safe", "suggestive", "erotica"]
+                    case 3: contentRatings = ["safe", "suggestive", "erotica", "pornographic"]
+                    default: contentRatings = ["safe", "suggestive"]
+                    }
+                } else if id == "sort" {
+                    switch selectedIndex {
+                    case 1: sortParam = ("latestUploadedChapter", "desc")
+                    case 2: sortParam = ("title", "asc")
+                    case 3: sortParam = ("createdAt", "desc")
+                    default: sortParam = ("followedCount", "desc")
+                    }
+                }
+            default:
+                break
+            }
         }
+
+        for rating in contentRatings {
+            queryItems.append(URLQueryItem(name: "contentRating[]", value: rating))
+        }
+        queryItems.append(URLQueryItem(name: "order[\(sortParam.0)]", value: sortParam.1))
+
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            queryItems.append(URLQueryItem(name: "title", value: trimmed))
+        }
+
         components.queryItems = queryItems
         guard let url = components.url else {
             throw YomiError.networkError("Invalid MangaDex URL components")
@@ -89,8 +148,18 @@ public final class MangaDexSource: SourceProtocol, Sendable {
         return try await fetchMangaList(from: url.absoluteString)
     }
 
+    private func extractMangaId(from urlString: String) -> String {
+        if let regex = try? NSRegularExpression(pattern: "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"),
+           let match = regex.firstMatch(in: urlString, range: NSRange(urlString.startIndex..., in: urlString)),
+           let range = Range(match.range, in: urlString) {
+            return String(urlString[range])
+        }
+        let clean = urlString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return clean.components(separatedBy: "/").last ?? urlString
+    }
+
     public func getMangaDetails(manga: Manga) async throws -> Manga {
-        let mangaId = manga.url.components(separatedBy: "/").last ?? manga.url
+        let mangaId = extractMangaId(from: manga.url)
         var components = URLComponents(string: "\(apiBase)/manga/\(mangaId)")!
         components.queryItems = [
             URLQueryItem(name: "includes[]", value: "cover_art"),
@@ -143,30 +212,57 @@ public final class MangaDexSource: SourceProtocol, Sendable {
     }
 
     public func getChapterList(manga: Manga) async throws -> [Chapter] {
-        let mangaId = manga.url.components(separatedBy: "/").last ?? manga.url
+        let mangaId = extractMangaId(from: manga.url)
+
+        // Attempt fetching English chapters first
+        let enChapters = try await fetchChaptersFeed(manga: manga, mangaId: mangaId, englishOnly: true)
+        if !enChapters.isEmpty {
+            return enChapters
+        }
+
+        // Fallback: If 0 English chapters exist, fetch chapters across all languages
+        return try await fetchChaptersFeed(manga: manga, mangaId: mangaId, englishOnly: false)
+    }
+
+    private func fetchChaptersFeed(manga: Manga, mangaId: String, englishOnly: Bool) async throws -> [Chapter] {
         var chapters: [Chapter] = []
         var offset = 0
         let limit = 100
         var total = 100
+        var seenUrls = Set<String>()
 
-        while offset < total {
+        while offset < min(total, 500) {
             var components = URLComponents(string: "\(apiBase)/manga/\(mangaId)/feed")!
-            components.queryItems = [
+            var queryItems = [
                 URLQueryItem(name: "limit", value: "\(limit)"),
                 URLQueryItem(name: "offset", value: "\(offset)"),
-                URLQueryItem(name: "translatedLanguage[]", value: "en"),
                 URLQueryItem(name: "order[chapter]", value: "desc"),
                 URLQueryItem(name: "includes[]", value: "scanlation_group"),
-                URLQueryItem(name: "includeExternalUrl", value: "0"),
                 URLQueryItem(name: "contentRating[]", value: "safe"),
                 URLQueryItem(name: "contentRating[]", value: "suggestive"),
-                URLQueryItem(name: "contentRating[]", value: "erotica")
+                URLQueryItem(name: "contentRating[]", value: "erotica"),
+                URLQueryItem(name: "contentRating[]", value: "pornographic")
             ]
+            if englishOnly {
+                queryItems.append(URLQueryItem(name: "translatedLanguage[]", value: "en"))
+            }
+            components.queryItems = queryItems
             guard let url = components.url else { break }
 
             let request = makeRequest(url: url)
-            let (data, _) = try await URLSession.shared.data(for: request)
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let (data, response) = try await URLSession.shared.data(for: request)
+            var jsonData = data
+            if let http = response as? HTTPURLResponse, http.statusCode == 429 {
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                if let (retryData, retryResp) = try? await URLSession.shared.data(for: request),
+                   let rHttp = retryResp as? HTTPURLResponse, rHttp.statusCode < 400 {
+                    jsonData = retryData
+                } else {
+                    break
+                }
+            }
+
+            guard let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
                   let dataList = json["data"] as? [[String: Any]] else {
                 break
             }
@@ -177,18 +273,26 @@ public final class MangaDexSource: SourceProtocol, Sendable {
                 guard let chId = item["id"] as? String,
                       let attrs = item["attributes"] as? [String: Any] else { continue }
 
-                // Skip external redirect links and empty 0-page chapters
-                if let extUrl = attrs["externalUrl"] as? String, !extUrl.isEmpty { continue }
-                if let pages = attrs["pages"] as? Int, pages <= 0 { continue }
+                if seenUrls.contains(chId) { continue }
+                seenUrls.insert(chId)
+
+                let extUrl = attrs["externalUrl"] as? String
+                let pages = attrs["pages"] as? Int ?? 0
 
                 let chString = attrs["chapter"] as? String ?? ""
                 let chNum = Float(chString) ?? -1.0
                 let rawTitle = (attrs["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                let displayName: String
+                let lang = attrs["translatedLanguage"] as? String ?? "en"
+
+                var displayName: String
                 if rawTitle.isEmpty {
                     displayName = chString.isEmpty ? "Chapter" : "Chapter \(chString)"
                 } else {
                     displayName = rawTitle
+                }
+
+                if lang != "en" {
+                    displayName = "[\(lang.uppercased())] \(displayName)"
                 }
 
                 // Extract scanlator group name from relationships
@@ -204,9 +308,14 @@ public final class MangaDexSource: SourceProtocol, Sendable {
                     }
                 }
 
+                if let ext = extUrl, !ext.isEmpty, pages <= 0 {
+                    scanlatorName = "External (\(scanlatorName ?? "Web"))"
+                }
+
                 let uploadDateStr = attrs["publishAt"] as? String ?? ""
                 let formatter = ISO8601DateFormatter()
-                let dateUpload = formatter.date(from: uploadDateStr) ?? Date()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                let dateUpload = formatter.date(from: uploadDateStr) ?? ISO8601DateFormatter().date(from: uploadDateStr) ?? Date()
 
                 let chapter = Chapter(
                     mangaId: manga.id ?? 0,

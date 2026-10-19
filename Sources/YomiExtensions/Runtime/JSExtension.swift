@@ -82,6 +82,43 @@ public final class JSExtension: SourceProtocol, @unchecked Sendable {
 
     // MARK: - SourceProtocol Implementation
 
+    public func getFilters() -> [Filter] {
+        guard let context = context else { return [] }
+        guard let extObj = context.objectForKeyedSubscript("Extension"), !extObj.isUndefined,
+              let fn = extObj.objectForKeyedSubscript("getFilters"), !fn.isUndefined else {
+            return []
+        }
+        guard let res = fn.call(withArguments: []), !res.isUndefined, !res.isNull else { return [] }
+        guard let list = res.toArray() as? [[String: Any]] else { return [] }
+
+        return list.compactMap { dict in
+            guard let type = dict["type"] as? String,
+                  let id = dict["id"] as? String,
+                  let name = dict["name"] as? String else { return nil }
+
+            switch type {
+            case "select":
+                let values = dict["values"] as? [String] ?? []
+                let selectedIndex = dict["selectedIndex"] as? Int ?? 0
+                return .select(id: id, name: name, values: values, selectedIndex: selectedIndex)
+            case "triState":
+                let stateRaw = dict["state"] as? Int ?? 0
+                let state = TriState(rawValue: stateRaw) ?? .ignored
+                return .triState(id: id, name: name, state: state)
+            case "sort":
+                let values = dict["values"] as? [String] ?? []
+                let selectedIndex = dict["selectedIndex"] as? Int ?? 0
+                let ascending = dict["ascending"] as? Bool ?? false
+                return .sort(id: id, name: name, values: values, selectedIndex: selectedIndex, ascending: ascending)
+            case "text":
+                let state = dict["state"] as? String ?? ""
+                return .text(id: id, name: name, state: state)
+            default:
+                return nil
+            }
+        }
+    }
+
     public func getPopularManga(page: Int) async throws -> MangaPageResult {
         let script = "Extension.getPopularManga(\(page))"
         let result = try await executeWithCloudflareRecovery {
@@ -99,8 +136,29 @@ public final class JSExtension: SourceProtocol, @unchecked Sendable {
     }
 
     public func searchManga(query: String, filters: [Filter], page: Int) async throws -> MangaPageResult {
-        let escapedQuery = query.replacingOccurrences(of: "\"", with: "\\\"")
-        let script = "Extension.searchManga(\"\(escapedQuery)\", \(page))"
+        let escapedQuery = query.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        var filterDicts: [[String: Any]] = []
+        for filter in filters {
+            switch filter {
+            case .select(let id, let name, let values, let selectedIndex):
+                filterDicts.append(["type": "select", "id": id, "name": name, "values": values, "selectedIndex": selectedIndex])
+            case .triState(let id, let name, let state):
+                filterDicts.append(["type": "triState", "id": id, "name": name, "state": state.rawValue])
+            case .sort(let id, let name, let values, let selectedIndex, let ascending):
+                filterDicts.append(["type": "sort", "id": id, "name": name, "values": values, "selectedIndex": selectedIndex, "ascending": ascending])
+            case .text(let id, let name, let state):
+                filterDicts.append(["type": "text", "id": id, "name": name, "state": state])
+            }
+        }
+        let filterJson: String
+        if let data = try? JSONSerialization.data(withJSONObject: filterDicts),
+           let str = String(data: data, encoding: .utf8) {
+            filterJson = str
+        } else {
+            filterJson = "[]"
+        }
+
+        let script = "Extension.searchManga(\"\(escapedQuery)\", \(filterJson), \(page))"
         let result = try await executeWithCloudflareRecovery {
             try await self.executeAsync(script: script)
         }

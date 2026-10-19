@@ -15,11 +15,40 @@ public final class MangaPillSource: SourceProtocol, Sendable {
             lang: "en",
             baseUrl: baseUrl,
             iconUrl: "\(baseUrl)/favicon.ico",
-            version: "1.0.0",
-            isConfigurable: false,
+            version: "1.1.0",
+            isConfigurable: true,
             supportsLatest: true,
             isNsfw: false
         )
+    }
+
+    public func getFilters() -> [Filter] {
+        [
+            .select(
+                id: "type",
+                name: "Type",
+                values: ["All", "Manga", "Manhwa / Manhua", "Novel", "One-Shot", "Doujinshi", "Oel"],
+                selectedIndex: 0
+            ),
+            .select(
+                id: "status",
+                name: "Status",
+                values: ["All", "Publishing", "Finished", "On Hiatus", "Discontinued"],
+                selectedIndex: 0
+            ),
+            .select(
+                id: "genre",
+                name: "Genre",
+                values: [
+                    "All", "Action", "Adventure", "Comedy", "Drama", "Ecchi", "Fantasy",
+                    "Gender Bender", "Harem", "Historical", "Horror", "Isekai", "Josei",
+                    "Magic", "Martial Arts", "Mecha", "Mystery", "Psychological", "Romance",
+                    "School", "Sci-Fi", "Seinen", "Shoujo", "Shounen", "Slice of Life",
+                    "Sports", "Supernatural", "Thriller", "Tragedy"
+                ],
+                selectedIndex: 0
+            )
+        ]
     }
 
     public init() {}
@@ -49,8 +78,41 @@ public final class MangaPillSource: SourceProtocol, Sendable {
     public func searchManga(query: String, filters: [Filter], page: Int) async throws -> MangaPageResult {
         let p = max(1, page)
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        let urlString = "\(baseUrl)/search?q=\(encoded)&page=\(p)"
+
+        var queryItems: [String] = ["page=\(p)"]
+        if !trimmed.isEmpty {
+            let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+            queryItems.append("q=\(encoded)")
+        }
+
+        for filter in filters {
+            switch filter {
+            case .select(let id, _, let values, let selectedIndex):
+                guard selectedIndex > 0 && selectedIndex < values.count else { continue }
+                let val = values[selectedIndex]
+                if id == "type" {
+                    let paramVal: String
+                    if val.contains("Manhwa") { paramVal = "manhua" }
+                    else { paramVal = val.lowercased().replacingOccurrences(of: " ", with: "-") }
+                    queryItems.append("type=\(paramVal)")
+                } else if id == "status" {
+                    let paramVal = val.lowercased()
+                    queryItems.append("status=\(paramVal)")
+                } else if id == "genre" {
+                    let paramVal = val.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? val
+                    queryItems.append("genre=\(paramVal)")
+                }
+            default:
+                break
+            }
+        }
+
+        // If neither search query nor filters are specified, browse latest/popular
+        if trimmed.isEmpty && queryItems.count == 1 {
+            return try await getPopularManga(page: p)
+        }
+        let queryString = queryItems.joined(separator: "&")
+        let urlString = "\(baseUrl)/search?\(queryString)"
         return try await fetchMangaListing(from: urlString)
     }
 
@@ -75,9 +137,9 @@ public final class MangaPillSource: SourceProtocol, Sendable {
             updated.title = title
         }
 
-        if let descEl = try doc.select("p.text-secondary, .description").first() {
+        if let descEl = try doc.select("p.text--secondary, p.description, .description").first() {
             let desc = try descEl.text().trimmingCharacters(in: .whitespacesAndNewlines)
-            if !desc.isEmpty { updated.description = desc }
+            if !desc.isEmpty && !desc.contains("Chapter not found") { updated.description = desc }
         }
 
         if let coverEl = try doc.select("figure img").first() {
@@ -212,37 +274,69 @@ public final class MangaPillSource: SourceProtocol, Sendable {
         }
 
         let doc = try SwiftSoup.parse(html)
-        let cards = try doc.select("div > a[href*='/manga/']").array()
+        let cards = try doc.select(".grid > div, div.grid > div, div:has(> a[href*='/manga/'])").array()
 
         var mangas: [Manga] = []
         var seenUrls = Set<String>()
 
         for card in cards {
-            let href = try card.attr("href")
+            guard let linkEl = try card.select("a[href*='/manga/']").first() else { continue }
+            let href = try linkEl.attr("href")
             guard !href.isEmpty, !seenUrls.contains(href) else { continue }
             seenUrls.insert(href)
 
-            // Find title: either inside text or next sibling text
-            var title = try card.select(".font-black").first()?.text() ?? ""
+            // Extract title from .font-black, .line-clamp-2, or image alt attribute
+            var title = try card.select(".font-black, .line-clamp-2, h3").first()?.text() ?? ""
+            if title.isEmpty {
+                title = try card.select("img").first()?.attr("alt") ?? ""
+            }
             if title.isEmpty {
                 title = try card.text().trimmingCharacters(in: .whitespacesAndNewlines)
             }
             guard !title.isEmpty else { continue }
 
-            // Thumbnail
+            // Thumbnail extraction
             let imgEl = try card.select("img").first()
             let thumb = try imgEl?.attr("data-src") ?? ""
             let fallbackThumb = try imgEl?.attr("src") ?? ""
             let effectiveThumb = !thumb.isEmpty ? thumb : fallbackThumb
 
+            // Status heuristic
+            let cardText = try card.text().lowercased()
+            let status: MangaStatus = (cardText.contains("completed") || cardText.contains("finished")) ? .completed : .ongoing
+
             let manga = Manga(
                 sourceId: Self.sourceId,
                 url: href,
                 title: title,
-                status: .ongoing,
+                status: status,
                 thumbnailUrl: effectiveThumb.isEmpty ? nil : effectiveThumb
             )
             mangas.append(manga)
+        }
+
+        // Fallback to deduplicated links if grid selector didn't match
+        if mangas.isEmpty {
+            let links = try doc.select("a[href*='/manga/']").array()
+            for link in links {
+                let href = try link.attr("href")
+                guard !href.isEmpty, !seenUrls.contains(href) else { continue }
+                let title = try link.select(".font-black").first()?.text() ?? link.text().trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !title.isEmpty else { continue }
+                seenUrls.insert(href)
+
+                let imgEl = try link.select("img").first()
+                let thumb = try imgEl?.attr("data-src") ?? imgEl?.attr("src") ?? ""
+
+                let manga = Manga(
+                    sourceId: Self.sourceId,
+                    url: href,
+                    title: title,
+                    status: .ongoing,
+                    thumbnailUrl: thumb.isEmpty ? nil : thumb
+                )
+                mangas.append(manga)
+            }
         }
 
         let hasNext = mangas.count >= 20

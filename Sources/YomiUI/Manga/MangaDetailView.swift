@@ -172,7 +172,7 @@ public struct MangaDetailView: View {
         .onChange(of: activeChapterForReading) { oldVal, newVal in
             if oldVal != nil && newVal == nil {
                 if let mangaId = manga.id {
-                    Task {
+                    Task { @MainActor in
                         self.chapters = (try? await chapterRepo.getChapters(forMangaId: mangaId)) ?? self.chapters
                     }
                 }
@@ -183,7 +183,7 @@ public struct MangaDetailView: View {
     private func loadChapters() {
         isLoadingChapters = true
 
-        Task {
+        Task { @MainActor in
             var currentManga = manga
             if let existing = try? await mangaRepo.getManga(sourceId: currentManga.sourceId, url: currentManga.url) {
                 currentManga = existing
@@ -224,7 +224,7 @@ public struct MangaDetailView: View {
 
     private func toggleLibraryStatus() {
         isInLibrary.toggle()
-        Task {
+        Task { @MainActor in
             if manga.id == nil {
                 if let saved = try? await mangaRepo.upsert(manga) {
                     self.manga = saved
@@ -238,7 +238,7 @@ public struct MangaDetailView: View {
     private func toggleChapterRead(_ chapter: Chapter) {
         guard let chId = chapter.id else { return }
         let newStatus = !chapter.read
-        Task {
+        Task { @MainActor in
             try? await chapterRepo.updateProgress(chapterId: chId, lastPageRead: chapter.lastPageRead, isRead: newStatus, logHistory: false)
             if let idx = chapters.firstIndex(where: { $0.id == chId }) {
                 chapters[idx].read = newStatus
@@ -249,7 +249,7 @@ public struct MangaDetailView: View {
     private func toggleChapterBookmark(_ chapter: Chapter) {
         guard let chId = chapter.id else { return }
         let newBookmark = !chapter.bookmark
-        Task {
+        Task { @MainActor in
             try? await chapterRepo.setBookmark(chapterId: chId, isBookmarked: newBookmark)
             if let idx = chapters.firstIndex(where: { $0.id == chId }) {
                 chapters[idx].bookmark = newBookmark

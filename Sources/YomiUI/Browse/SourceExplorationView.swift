@@ -13,6 +13,13 @@ public struct SourceExplorationView: View {
     @State private var hasNextPage: Bool = true
     @State private var isLoading: Bool = false
     @State private var errorMessage: String?
+    @State private var availableFilters: [Filter] = []
+    @State private var appliedFilters: [Filter] = []
+    @State private var isFilterSheetPresented: Bool = false
+
+    private var hasActiveFilters: Bool {
+        appliedFilters.contains { !$0.isDefault }
+    }
 
     private let mangaRepo = MangaRepository()
     private let columns = [GridItem(.adaptive(minimum: 105, maximum: 160), spacing: 12)]
@@ -120,8 +127,39 @@ public struct SourceExplorationView: View {
                 resetAndFetch()
             }
         }
+        .toolbar {
+            if !availableFilters.isEmpty {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        isFilterSheetPresented = true
+                    } label: {
+                        Image(systemName: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                            .foregroundStyle(hasActiveFilters ? YomiTheme.accent : YomiTheme.textSecondary)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $isFilterSheetPresented) {
+            SourceFilterSheet(
+                currentFilters: appliedFilters,
+                defaultFilters: availableFilters,
+                onApply: { updated in
+                    appliedFilters = updated
+                    resetAndFetch()
+                },
+                onReset: {
+                    appliedFilters = availableFilters
+                    resetAndFetch()
+                }
+            )
+        }
         .onAppear {
             loadLibraryUrls()
+            if availableFilters.isEmpty {
+                let filters = source.getFilters()
+                self.availableFilters = filters
+                self.appliedFilters = filters
+            }
             if mangas.isEmpty { resetAndFetch() }
         }
         .navigationDestination(for: Manga.self) { manga in
@@ -161,8 +199,9 @@ public struct SourceExplorationView: View {
         Task {
             do {
                 let result: MangaPageResult
-                if !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    result = try await source.searchManga(query: searchQuery, filters: [], page: currentPage)
+                let hasQuery = !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                if hasQuery || hasActiveFilters {
+                    result = try await source.searchManga(query: searchQuery, filters: appliedFilters, page: currentPage)
                 } else if filterMode == 0 {
                     result = try await source.getPopularManga(page: currentPage)
                 } else {

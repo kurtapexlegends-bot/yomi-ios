@@ -3,7 +3,7 @@ import WebKit
 import Observation
 import YomiCore
 
-/// Coordinates automated headless Cloudflare Turnstile solving and user-facing interactive captcha sheets.
+/// Coordinates interactive and automated Cloudflare challenge resolution and cookie synchronization.
 @Observable
 public final class CloudflareSolver: NSObject, WKNavigationDelegate, @unchecked Sendable {
     public static let shared = CloudflareSolver()
@@ -11,42 +11,38 @@ public final class CloudflareSolver: NSObject, WKNavigationDelegate, @unchecked 
     /// State indicating whether an interactive captcha solver modal sheet needs to be shown.
     public var isPresentingSolverSheet: Bool = false
     public var activeChallengeUrl: URL?
+    public var activeWebView: WKWebView?
 
-    private var activeWebView: WKWebView?
     private var completionHandler: ((Bool) -> Void)?
+    private var pollTimer: Task<Void, Never>?
 
     private override init() {
         super.init()
     }
 
-    /// Attempts to solve a Cloudflare challenge, first headlessly, falling back to an interactive sheet if needed.
+    /// Resolves a Cloudflare anti-bot challenge by presenting the interactive solver sheet.
     @MainActor
     public func resolveChallenge(for url: URL) async -> Bool {
         return await withCheckedContinuation { continuation in
+            self.cancelCurrentSession()
             self.activeChallengeUrl = url
-            self.completionHandler = { success in
+            self.completionHandler = { [weak self] success in
+                guard let self = self else { return }
+                self.pollTimer?.cancel()
+                self.pollTimer = nil
                 self.isPresentingSolverSheet = false
                 self.activeWebView = nil
                 continuation.resume(returning: success)
             }
 
-            let config = WKWebViewConfiguration()
-            config.websiteDataStore = .default()
-            
-            let webView = WKWebView(frame: .zero, configuration: config)
-            webView.customUserAgent = NetworkBridge.defaultUserAgent
-            webView.navigationDelegate = self
-            self.activeWebView = webView
+            self.isPresentingSolverSheet = true
 
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 30
-            webView.load(request)
-
-            // If not solved within 7 seconds headlessly, present interactive UI to user
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 7_000_000_000)
-                if self.activeWebView != nil && !self.isPresentingSolverSheet {
-                    self.isPresentingSolverSheet = true
+            // Periodically inspect cookies in background while sheet is presented
+            self.pollTimer = Task { @MainActor [weak self] in
+                for _ in 0..<60 { // Poll up to 90 seconds
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    guard let self = self, self.isPresentingSolverSheet, let activeWv = self.activeWebView else { continue }
+                    self.inspectChallengeStatus(in: activeWv)
                 }
             }
         }
@@ -55,54 +51,64 @@ public final class CloudflareSolver: NSObject, WKNavigationDelegate, @unchecked 
     // MARK: - WKNavigationDelegate
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        // Inspect current page title and cookies to verify if challenge passed
-        webView.evaluateJavaScript("document.title") { [weak self] result, _ in
-            guard let self = self else { return }
-            let title = (result as? String) ?? ""
-
-            WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
-                let hasClearance = cookies.contains { $0.name == "cf_clearance" || $0.name == "__cf_bm" }
-                let isPastChallenge = !title.contains("Just a moment...") && !title.contains("Attention Required")
-
-                if hasClearance && isPastChallenge {
-                    // Synchronize cookies into foundation URLSession storage
-                    for cookie in cookies {
-                        HTTPCookieStorage.shared.setCookie(cookie)
-                    }
-                    self.completionHandler?(true)
-                    self.completionHandler = nil
-                }
-            }
-        }
+        inspectChallengeStatus(in: webView)
     }
 
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        if isPresentingSolverSheet {
-            // Keep open for user retry
-        } else {
-            completionHandler?(false)
-            completionHandler = nil
+        // Keep interactive web view alive so user can refresh or solve Turnstile
+    }
+
+    public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        // If provisional navigation fails (e.g. transient network or Cloudflare HTTP 403 status), keep sheet active
+    }
+
+    private func inspectChallengeStatus(in webView: WKWebView) {
+        WKWebsiteDataStore.default().httpCookieStore.getAllCookies { [weak self] cookies in
+            guard let self = self else { return }
+            let hasClearance = cookies.contains { $0.name == "cf_clearance" || $0.name == "__cf_bm" }
+            if hasClearance {
+                self.syncCookiesAndComplete(cookies: cookies, success: true)
+            }
         }
     }
 
-    /// Called by user when dismissing or completing the solver sheet manually.
+    private func syncCookiesAndComplete(cookies: [HTTPCookie], success: Bool) {
+        for cookie in cookies {
+            HTTPCookieStorage.shared.setCookie(cookie)
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.pollTimer?.cancel()
+            self.pollTimer = nil
+            self.isPresentingSolverSheet = false
+            self.activeWebView = nil
+            let handler = self.completionHandler
+            self.completionHandler = nil
+            handler?(success)
+        }
+    }
+
+    /// Called when user taps Done on solver sheet
     @MainActor
     public func userDidCompleteChallenge() {
         WKWebsiteDataStore.default().httpCookieStore.getAllCookies { [weak self] cookies in
-            for cookie in cookies {
-                HTTPCookieStorage.shared.setCookie(cookie)
-            }
-            self?.completionHandler?(true)
-            self?.completionHandler = nil
-            self?.isPresentingSolverSheet = false
+            guard let self = self else { return }
+            self.syncCookiesAndComplete(cookies: cookies, success: true)
         }
     }
 
     @MainActor
     public func cancel() {
-        completionHandler?(false)
+        cancelCurrentSession()
+    }
+
+    private func cancelCurrentSession() {
+        pollTimer?.cancel()
+        pollTimer = nil
+        let handler = completionHandler
         completionHandler = nil
         isPresentingSolverSheet = false
         activeWebView = nil
+        handler?(false)
     }
 }

@@ -18,6 +18,10 @@ public final class ImageDownsampler: @unchecked Sendable {
 
     /// Downsamples raw image data to target bounding point size before memory decoding.
     public func downsample(data: Data, to pointSize: CGSize, scale: CGFloat = 2.0) -> UIImage? {
+        guard pointSize.width > 0, pointSize.height > 0 else {
+            return UIImage(data: data)
+        }
+
         let cacheKey = "\(data.count)_\(Int(pointSize.width))x\(Int(pointSize.height))" as NSString
         if let cached = memoryCache.object(forKey: cacheKey) {
             return cached

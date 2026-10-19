@@ -102,4 +102,5 @@
 - **Inspect State First:** Never speculate or make blind edits. Inspect source files and verify line numbers before making modifications.
 - **No Unsolicited Dependencies:** Never add SPM packages or Cocoapods without explicit instruction.
 - **No Destructive Git Commands:** Never execute `git reset --hard`, `git push --force`, or unprompted file wipes.
+- **Automated CI Push Protocol:** The user has authorized automatically committing and pushing verified code changes to `origin main` upon task completion so that the GitHub Actions build and packaging pipeline (`Yomi-Device-IPA`) automatically triggers without manual prompts.
 - **Deterministic CI Verification:** Before marking a milestone as complete, verify that the GitHub Actions CI pipeline passes green and build artifacts are generated.

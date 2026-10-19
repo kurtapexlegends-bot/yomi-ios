@@ -37,8 +37,12 @@ public final class ChapterRepository: Sendable {
             let existingMap = Dictionary(grouping: existingList, by: { $0.url }).compactMapValues { $0.first }
 
             var updatedDomainChapters: [Chapter] = []
+            var seenUrls = Set<String>()
 
             for chapter in freshChapters {
+                guard !seenUrls.contains(chapter.url) else { continue }
+                seenUrls.insert(chapter.url)
+
                 var record = ChapterRecord(chapter: chapter)
                 record.manga_id = mangaId
 

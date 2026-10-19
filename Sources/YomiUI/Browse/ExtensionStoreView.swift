@@ -41,41 +41,6 @@ public struct ExtensionStoreView: View {
 
     public var body: some View {
         List {
-            // Quick-Add Keiyoushi Banner
-            Section {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "sparkles")
-                            .foregroundStyle(YomiTheme.accent)
-                        Text("Recommended Repository")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(YomiTheme.textPrimary)
-                    }
-
-                    Text("Keiyoushi extension catalog with 1,400+ community manga sources across 30+ languages.")
-                        .font(.caption)
-                        .foregroundStyle(YomiTheme.textSecondary)
-
-                    Button {
-                        quickAddKeiyoushi()
-                    } label: {
-                        HStack {
-                            Image(systemName: "plus.circle.fill")
-                            Text(isKeiyoushiInstalled ? "Keiyoushi Active" : "Add Keiyoushi Repository")
-                                .fontWeight(.semibold)
-                        }
-                        .font(.caption)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(isKeiyoushiInstalled ? Color.green.opacity(0.2) : YomiTheme.accent)
-                        .foregroundStyle(isKeiyoushiInstalled ? Color.green : Color.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                    .disabled(isKeiyoushiInstalled || isLoading)
-                }
-                .padding(.vertical, 4)
-            }
-
             // Repository Sources Section
             Section {
                 Button {
@@ -163,7 +128,7 @@ public struct ExtensionStoreView: View {
                             .foregroundStyle(YomiTheme.textSecondary)
                         Text("No Extensions Loaded")
                             .font(.headline)
-                        Text("Tap 'Add Keiyoushi Repository' above or enter a repository URL to browse extensions.")
+                        Text("Enter a repository URL above or pull down to refresh extensions.")
                             .font(.caption)
                             .foregroundStyle(YomiTheme.textSecondary)
                             .multilineTextAlignment(.center)
@@ -224,14 +189,6 @@ public struct ExtensionStoreView: View {
         .onAppear {
             loadReposAndPackages()
         }
-    }
-
-    private var isKeiyoushiInstalled: Bool {
-        repos.contains { $0.url.contains("keiyoushi") }
-    }
-
-    private func quickAddKeiyoushi() {
-        addRepository(urlString: RepoManager.keiyoushiRepoURL)
     }
 
     private func loadReposAndPackages(forceRefresh: Bool = false) {
