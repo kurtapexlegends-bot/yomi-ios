@@ -28,7 +28,20 @@ public final class ImageDownsampler: @unchecked Sendable {
             return nil
         }
 
-        let maxDimensionInPixels = max(pointSize.width, pointSize.height) * scale
+        var maxDimensionInPixels = max(pointSize.width, pointSize.height) * scale
+
+        // Adaptively scale tall Webtoon strips so width maintains native viewport pixel density
+        if let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
+           let pixelWidth = properties[kCGImagePropertyPixelWidth] as? CGFloat,
+           let pixelHeight = properties[kCGImagePropertyPixelHeight] as? CGFloat,
+           pixelWidth > 0 {
+            let aspect = pixelHeight / pixelWidth
+            if aspect > 1.8 {
+                let targetWidthInPixels = pointSize.width * scale
+                maxDimensionInPixels = max(maxDimensionInPixels, targetWidthInPixels * aspect)
+            }
+        }
+
         let downsampleOptions: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceShouldCacheImmediately: true,

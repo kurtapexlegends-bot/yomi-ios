@@ -64,7 +64,7 @@ struct SourcesListView: View {
 
     var body: some View {
         List {
-            Section("Installed Sources") {
+            Section("Installed Sources (\(sources.count))") {
                 ForEach(sources, id: \.manifest.id) { source in
                     NavigationLink(value: source.manifest) {
                         HStack(spacing: 12) {
@@ -78,13 +78,27 @@ struct SourcesListView: View {
                                         .foregroundStyle(YomiTheme.accent)
                                 }
                             }
-                            .frame(width: 36, height: 36)
+                            .frame(width: 40, height: 40)
+                            .background(YomiTheme.surface)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(source.manifest.name)
-                                    .font(.headline)
-                                    .foregroundStyle(YomiTheme.textPrimary)
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 6) {
+                                    Text(source.manifest.name)
+                                        .font(.headline)
+                                        .foregroundStyle(YomiTheme.textPrimary)
+
+                                    if source.manifest.id == MangaPillSource.sourceId || source.manifest.id == MangaDexSource.sourceId {
+                                        Text("Native")
+                                            .font(.caption2.bold())
+                                            .padding(.horizontal, 5)
+                                            .padding(.vertical, 1)
+                                            .background(Color.blue.opacity(0.2))
+                                            .foregroundStyle(Color.blue)
+                                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                                    }
+                                }
+
                                 HStack(spacing: 6) {
                                     Text(source.manifest.lang.uppercased())
                                         .font(.caption2.bold())
@@ -92,9 +106,16 @@ struct SourcesListView: View {
                                         .padding(.vertical, 1)
                                         .background(YomiTheme.surface)
                                         .clipShape(RoundedRectangle(cornerRadius: 4))
+
                                     Text("v\(source.manifest.version)")
                                         .font(.caption)
                                         .foregroundStyle(YomiTheme.textSecondary)
+
+                                    if source.manifest.id == MangaPillSource.sourceId {
+                                        Text("• Full Chapters")
+                                            .font(.caption2)
+                                            .foregroundStyle(.green)
+                                    }
                                 }
                             }
                         }

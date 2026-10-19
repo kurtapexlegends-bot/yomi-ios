@@ -20,6 +20,8 @@
     <string>1</string>
     <key>CFBundleDisplayName</key>
     <string>Yomi</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>NSFaceIDUsageDescription</key>

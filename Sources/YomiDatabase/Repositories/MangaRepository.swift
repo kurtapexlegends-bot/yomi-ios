@@ -123,4 +123,11 @@ public final class MangaRepository: Sendable {
             _ = try MangaRecord.deleteOne(db, key: id)
         }
     }
+
+    /// Rebuilds the SQLite FTS5 full-text search index from the mangas content table.
+    public func rebuildFTSIndex() async throws {
+        try await dbManager.write { db in
+            try db.execute(sql: "INSERT INTO mangas_fts(mangas_fts) VALUES('rebuild');")
+        }
+    }
 }

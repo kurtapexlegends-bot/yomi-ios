@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>Yomi — Concept A v2: Diagonal Gutter</title>
+  <g fill="#000000" fill-rule="evenodd">
+    <!-- Left Wing + Stem -->
+    <path d="M 40,40 L 92,40 L 128,88 L 128,216 L 96,216 L 96,120 L 40,64 Z" />
+    <!-- Right Wing + Stem facet -->
+    <path d="M 216,40 L 164,40 L 140,72 L 140,216 L 160,216 L 160,112 L 216,56 Z" />
+  </g>
+</svg>

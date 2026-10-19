@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>Yomi — Concept C: The Shonen Blade</title>
+  <g fill="#000000" fill-rule="evenodd">
+    <!-- Upper V chevron with sharp 45° speed cuts -->
+    <path d="M 40,40 L 88,40 L 128,100 L 168,40 L 216,40 L 152,136 L 152,216 L 104,216 L 104,136 Z" />
+  </g>
+</svg>

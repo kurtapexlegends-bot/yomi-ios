@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>Yomi — Concept B: The Nocturnal Folio</title>
+  <g fill="#000000" fill-rule="evenodd">
+    <!-- Left Manga Page / Panel: 70px wide, with 45° corner fold -->
+    <path d="M 48,80 L 88,40 L 118,40 L 118,216 L 48,216 Z" />
+    <!-- Right Manga Page / Panel: 70px wide, with 45° top angle evoking open spread -->
+    <path d="M 138,40 L 168,40 L 208,80 L 208,216 L 138,216 Z" />
+    <!-- Central negative space gutter: 20px wide (from 118 to 138), perfectly centered at x=128 -->
+  </g>
+</svg>

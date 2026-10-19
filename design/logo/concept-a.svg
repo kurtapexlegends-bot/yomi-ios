@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>Yomi — Concept A: The Architectural Gutter</title>
+  <g fill="#000000" fill-rule="evenodd">
+    <!-- Left Manga Page / Branch -->
+    <path d="M 40,40 L 88,40 L 120,72 L 120,216 L 80,216 L 80,120 L 40,80 Z" />
+    <!-- Right Manga Page / Branch (separated by 16px center gutter) -->
+    <path d="M 168,40 L 216,40 L 216,80 L 176,120 L 176,216 L 136,216 L 136,72 Z" />
+  </g>
+</svg>

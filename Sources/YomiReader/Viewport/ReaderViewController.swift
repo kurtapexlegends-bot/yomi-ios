@@ -12,24 +12,32 @@ public protocol ReaderViewControllerDelegate: AnyObject {
     func readerViewControllerRequestsPreviousChapter(_ controller: ReaderViewController)
 }
 
-public final class ReaderViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
+public final class ReaderViewController: UIViewController {
     public weak var delegate: ReaderViewControllerDelegate?
 
     public var pages: [ReaderPage] = [] {
         didSet {
             pageImages.removeAll()
-            collectionView.reloadData()
+            if isViewLoaded {
+                collectionView.reloadData()
+            }
         }
     }
 
     public var viewer: MangaViewer = .defaultViewer {
         didSet {
-            configureLayout()
+            if isViewLoaded {
+                configureLayout()
+            }
         }
     }
 
     public var isAutocropEnabled: Bool = false {
-        didSet { collectionView.reloadData() }
+        didSet {
+            if isViewLoaded {
+                collectionView.reloadData()
+            }
+        }
     }
 
     public var tapZoneLayout: TapZoneLayout = .leftRight
@@ -44,12 +52,12 @@ public final class ReaderViewController: UIViewController, UICollectionViewDataS
         }
     }
 
-    public private(set) var currentPageIndex: Int = 0
+    public internal(set) var currentPageIndex: Int = 0
 
-    private var collectionView: UICollectionView!
-    private let brightnessOverlay = UIView()
-    private var pageImages: [Int: UIImage] = [:]
-    private var loadingIndices: Set<Int> = []
+    var collectionView: UICollectionView!
+    let brightnessOverlay = UIView()
+    var pageImages: [Int: UIImage] = [:]
+    var loadingIndices: Set<Int> = []
     public var source: (any SourceProtocol)?
 
     public override func viewDidLoad() {
@@ -75,7 +83,7 @@ public final class ReaderViewController: UIViewController, UICollectionViewDataS
         collectionView.showsVerticalScrollIndicator = false
         collectionView.showsHorizontalScrollIndicator = false
         collectionView.register(ReaderCollectionViewCell.self, forCellWithReuseIdentifier: ReaderCollectionViewCell.reuseIdentifier)
-        
+
         view.addSubview(collectionView)
         configureLayout()
     }
@@ -170,106 +178,11 @@ public final class ReaderViewController: UIViewController, UICollectionViewDataS
         delegate?.readerViewController(self, didChangePage: currentPageIndex, totalPages: pages.count)
     }
 
-    // MARK: - UICollectionViewDataSource
-
-    public func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return pages.count
-    }
-
-    public func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: ReaderCollectionViewCell.reuseIdentifier, for: indexPath) as! ReaderCollectionViewCell
-        let page = pages[indexPath.item]
-        let cachedImage = pageImages[indexPath.item]
-        let isLoading = cachedImage == nil && loadingIndices.contains(indexPath.item)
-        let isWebtoon = viewer == .webtoon
-
-        cell.configure(
-            page: page,
-            image: cachedImage,
-            isLoading: isLoading,
-            isWebtoon: isWebtoon,
-            autocrop: isAutocropEnabled
-        )
-
-        cell.onRetry = { [weak self] in
-            self?.loadPageImage(at: indexPath.item)
-        }
-
-        if cachedImage == nil && !loadingIndices.contains(indexPath.item) {
-            loadPageImage(at: indexPath.item)
-        }
-
-        // Prefetch adjacent pages
-        prefetchAdjacentPages(around: indexPath.item)
-
-        return cell
-    }
-
-    // MARK: - UICollectionViewDelegateFlowLayout
-
-    public func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        let width = collectionView.bounds.width
-        let height = collectionView.bounds.height
-
-        if viewer == .webtoon {
-            if let image = pageImages[indexPath.item] {
-                let aspect = image.size.height / image.size.width
-                return CGSize(width: width, height: width * aspect)
-            }
-            return CGSize(width: width, height: height * 0.8) // Placeholder height until loaded
-        }
-
-        return CGSize(width: width, height: height)
-    }
-
-    // MARK: - Prefetching & Image Loading
-
-    private func loadPageImage(at index: Int) {
-        guard index >= 0 && index < pages.count else { return }
-        guard let src = source else { return }
-
-        loadingIndices.insert(index)
-        let page = pages[index]
-
-        Task { @MainActor [weak self] in
-            guard let self = self else { return }
-            do {
-                let data: Data
-                if let localPath = page.localPath, FileManager.default.fileExists(atPath: localPath) {
-                    data = try Data(contentsOf: URL(fileURLWithPath: localPath))
-                } else {
-                    data = try await src.getImageData(page: page)
-                }
-
-                if let downsampled = ImageDownsampler.shared.downsample(data: data, to: self.view.bounds.size) {
-                    self.pageImages[index] = downsampled
-                }
-            } catch {
-                print("[ReaderViewController] Failed to load image at page \(index): \(error)")
-            }
-            self.loadingIndices.remove(index)
-            self.collectionView.reloadItems(at: [IndexPath(item: index, section: 0)])
-        }
-    }
-
-    private func prefetchAdjacentPages(around index: Int) {
-        let prefetchIndices = [index + 1, index + 2, index - 1]
-        for idx in prefetchIndices {
-            if idx >= 0 && idx < pages.count && pageImages[idx] == nil && !loadingIndices.contains(idx) {
-                loadPageImage(at: idx)
-            }
-        }
-    }
-
-    // MARK: - UIScrollViewDelegate
-
-    public func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        let visibleRect = CGRect(origin: collectionView.contentOffset, size: collectionView.bounds.size)
-        let visiblePoint = CGPoint(x: visibleRect.midX, y: visibleRect.midY)
-        if let indexPath = collectionView.indexPathForItem(at: visiblePoint), indexPath.item != currentPageIndex {
-            currentPageIndex = indexPath.item
-            delegate?.readerViewController(self, didChangePage: currentPageIndex, totalPages: pages.count)
-        }
+    public override func didReceiveMemoryWarning() {
+        super.didReceiveMemoryWarning()
+        let current = currentPageIndex
+        pageImages = pageImages.filter { $0.key == current }
+        ImageDownsampler.shared.purgeMemory()
     }
 }
 #endif

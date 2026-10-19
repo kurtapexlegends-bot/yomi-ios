@@ -157,8 +157,10 @@ public final class MangaDexSource: SourceProtocol, Sendable {
                 URLQueryItem(name: "translatedLanguage[]", value: "en"),
                 URLQueryItem(name: "order[chapter]", value: "desc"),
                 URLQueryItem(name: "includes[]", value: "scanlation_group"),
+                URLQueryItem(name: "includeExternalUrl", value: "0"),
                 URLQueryItem(name: "contentRating[]", value: "safe"),
-                URLQueryItem(name: "contentRating[]", value: "suggestive")
+                URLQueryItem(name: "contentRating[]", value: "suggestive"),
+                URLQueryItem(name: "contentRating[]", value: "erotica")
             ]
             guard let url = components.url else { break }
 
@@ -174,6 +176,10 @@ public final class MangaDexSource: SourceProtocol, Sendable {
             for (idx, item) in dataList.enumerated() {
                 guard let chId = item["id"] as? String,
                       let attrs = item["attributes"] as? [String: Any] else { continue }
+
+                // Skip external redirect links and empty 0-page chapters
+                if let extUrl = attrs["externalUrl"] as? String, !extUrl.isEmpty { continue }
+                if let pages = attrs["pages"] as? Int, pages <= 0 { continue }
 
                 let chString = attrs["chapter"] as? String ?? ""
                 let chNum = Float(chString) ?? -1.0
@@ -223,22 +229,41 @@ public final class MangaDexSource: SourceProtocol, Sendable {
     }
 
     public func getPageList(chapter: Chapter) async throws -> [ReaderPage] {
-        let urlString = "\(apiBase)/at-home/server/\(chapter.url)"
+        let chId = chapter.url.components(separatedBy: "/").last ?? chapter.url
+        let urlString = "\(apiBase)/at-home/server/\(chId)"
         guard let url = URL(string: urlString) else { throw YomiError.networkError("Invalid chapter URL") }
 
         let request = makeRequest(url: url)
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
+            if http.statusCode == 404 {
+                throw YomiError.chapterNotFound("MangaDex does not host images for this chapter (external license or removed). Please read this title using MangaPill.")
+            }
+            throw YomiError.httpError(statusCode: http.statusCode, body: nil)
+        }
+
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let baseUrl = json["baseUrl"] as? String,
               let chapterDict = json["chapter"] as? [String: Any],
-              let hash = chapterDict["hash"] as? String,
-              let fileNames = chapterDict["data"] as? [String] else {
+              let hash = chapterDict["hash"] as? String else {
             throw YomiError.jsonParsingError("Failed to parse MangaDex at-home response")
         }
 
-        return fileNames.enumerated().map { idx, fileName in
-            let imageUrl = "\(baseUrl)/data/\(hash)/\(fileName)"
-            return ReaderPage(index: idx, url: imageUrl, imageUrl: imageUrl)
+        let originalFiles = chapterDict["data"] as? [String] ?? []
+        let dataSaverFiles = chapterDict["dataSaver"] as? [String] ?? []
+
+        if !originalFiles.isEmpty {
+            return originalFiles.enumerated().map { idx, fileName in
+                let imageUrl = "\(baseUrl)/data/\(hash)/\(fileName)"
+                return ReaderPage(index: idx, url: imageUrl, imageUrl: imageUrl)
+            }
+        } else if !dataSaverFiles.isEmpty {
+            return dataSaverFiles.enumerated().map { idx, fileName in
+                let imageUrl = "\(baseUrl)/data-saver/\(hash)/\(fileName)"
+                return ReaderPage(index: idx, url: imageUrl, imageUrl: imageUrl)
+            }
+        } else {
+            throw YomiError.chapterNotFound("MangaDex does not host image files for this chapter. Please read this title using MangaPill.")
         }
     }
 
@@ -249,7 +274,10 @@ public final class MangaDexSource: SourceProtocol, Sendable {
         var request = URLRequest(url: url)
         request.setValue("https://mangadex.org", forHTTPHeaderField: "Referer")
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
+            throw YomiError.httpError(statusCode: http.statusCode, body: nil)
+        }
         return data
     }
 

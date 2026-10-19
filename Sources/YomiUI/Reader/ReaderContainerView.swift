@@ -23,6 +23,7 @@ public struct ReaderContainerView: View {
     @State private var customBrightness: CGFloat = 1.0
     @State private var tapZoneLayout: TapZoneLayout = .leftRight
     @State private var isLoading: Bool = true
+    @State private var errorMessage: String? = nil
 
     private let chapterRepo = ChapterRepository()
     private let downloadManager = DownloadManager.shared
@@ -87,13 +88,58 @@ public struct ReaderContainerView: View {
                     }
                 )
             } else {
-                VStack(spacing: 12) {
-                    Text("No Pages Found")
-                        .font(.headline)
+                VStack(spacing: 16) {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 48))
+                        .foregroundStyle(YomiTheme.accent)
+
+                    Text("No Pages Available")
+                        .font(.headline.bold())
                         .foregroundStyle(.white)
+
+                    Text(errorMessage ?? "The source does not host readable pages for \(chapter.displayTitle). It may be an external release or temporarily offline.")
+                        .font(.caption)
+                        .foregroundStyle(YomiTheme.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+
+                    HStack(spacing: 12) {
+                        Button {
+                            loadPages()
+                        } label: {
+                            Label("Retry", systemImage: "arrow.clockwise")
+                                .font(.subheadline.bold())
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(YomiTheme.accent)
+
+                        if manga.sourceId == MangaDexSource.sourceId {
+                            Button {
+                                switchSourceToMangaPill()
+                            } label: {
+                                Label("Read on MangaPill", systemImage: "arrow.triangle.swap")
+                                    .font(.subheadline.bold())
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.green)
+                        } else {
+                            Button {
+                                goToNextChapter()
+                            } label: {
+                                Label("Next Chapter", systemImage: "forward.fill")
+                                    .font(.subheadline.bold())
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(YomiTheme.accent)
+                        }
+                    }
+
                     Button("Close") { dismiss() }
-                        .buttonStyle(.borderedProminent)
+                        .font(.subheadline)
+                        .foregroundStyle(YomiTheme.textSecondary)
+                        .padding(.top, 4)
                 }
+                .padding(24)
             }
         }
         .statusBarHidden(!isHUDVisible)
@@ -121,11 +167,24 @@ public struct ReaderContainerView: View {
             }
 
             // Fetch remote pages from source
-            if let src = extensionManager.getSource(id: manga.sourceId) {
-                if let fetchedPages = try? await src.getPageList(chapter: chapter) {
-                    self.pages = fetchedPages
-                    self.currentPage = min(chapter.lastPageRead, fetchedPages.count - 1)
+            do {
+                if let src = extensionManager.getSource(id: manga.sourceId) {
+                    let fetchedPages = try await src.getPageList(chapter: chapter)
+                    if !fetchedPages.isEmpty {
+                        self.pages = fetchedPages
+                        self.currentPage = min(chapter.lastPageRead, fetchedPages.count - 1)
+                        self.errorMessage = nil
+                    } else {
+                        self.pages = []
+                        self.errorMessage = "This chapter contains no hosted images on \(src.manifest.name)."
+                    }
+                } else {
+                    self.pages = []
+                    self.errorMessage = "Source not found."
                 }
+            } catch {
+                self.pages = []
+                self.errorMessage = error.localizedDescription
             }
             self.isLoading = false
         }
@@ -154,11 +213,70 @@ public struct ReaderContainerView: View {
     }
 
     private func goToNextChapter() {
-        // Fetch adjacent next chapter
+        guard let mId = manga.id else { return }
+        Task {
+            let allChapters = (try? await chapterRepo.getChapters(forMangaId: mId)) ?? []
+            if let currentIdx = allChapters.firstIndex(where: { $0.url == chapter.url }) {
+                // Chapters are sorted descending (latest first); next chronological is previous index
+                if currentIdx > 0 {
+                    let nextCh = allChapters[currentIdx - 1]
+                    await MainActor.run {
+                        self.chapter = nextCh
+                        self.currentPage = 0
+                        loadPages()
+                    }
+                }
+            }
+        }
     }
 
     private func goToPreviousChapter() {
-        // Fetch adjacent previous chapter
+        guard let mId = manga.id else { return }
+        Task {
+            let allChapters = (try? await chapterRepo.getChapters(forMangaId: mId)) ?? []
+            if let currentIdx = allChapters.firstIndex(where: { $0.url == chapter.url }) {
+                if currentIdx < allChapters.count - 1 {
+                    let prevCh = allChapters[currentIdx + 1]
+                    await MainActor.run {
+                        self.chapter = prevCh
+                        self.currentPage = 0
+                        loadPages()
+                    }
+                }
+            }
+        }
+    }
+
+    private func switchSourceToMangaPill() {
+        isLoading = true
+        Task {
+            do {
+                let pillSource = MangaPillSource()
+                let results = try await pillSource.searchManga(query: manga.title, filters: [], page: 1)
+                if let target = results.mangas.first {
+                    let tool = SourceMigrationTool(mangaRepo: MangaRepository(), chapterRepo: chapterRepo)
+                    _ = try await tool.migrate(manga: manga, toTarget: target, targetSource: pillSource)
+                    if let newChapters = try? await chapterRepo.getChapters(forMangaId: manga.id ?? 0),
+                       let firstCh = newChapters.first(where: { !$0.read }) ?? newChapters.first {
+                        await MainActor.run {
+                            self.chapter = firstCh
+                            self.currentPage = 0
+                            loadPages()
+                        }
+                        return
+                    }
+                }
+                await MainActor.run {
+                    self.errorMessage = "Could not locate matching manga on MangaPill. Please search in Browse."
+                    self.isLoading = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = "Failed to switch source: \(error.localizedDescription)"
+                    self.isLoading = false
+                }
+            }
+        }
     }
 }
 
@@ -202,6 +320,15 @@ struct ReaderBridgeView: UIViewControllerRepresentable {
         uiViewController.isInvertColorsEnabled = isInvertColorsEnabled
         uiViewController.customBrightness = customBrightness
         uiViewController.tapZoneLayout = tapZoneLayout
+
+        // Synchronize page list when chapter updates
+        if uiViewController.pages.map(\.url) != pages.map(\.url) {
+            uiViewController.pages = pages
+            uiViewController.scrollToPage(index: currentPageIndex, animated: false)
+        } else if uiViewController.currentPageIndex != currentPageIndex {
+            // Synchronize HUD scrubber scrub position
+            uiViewController.scrollToPage(index: currentPageIndex, animated: false)
+        }
     }
 
     final class Coordinator: NSObject, ReaderViewControllerDelegate {

@@ -9,7 +9,7 @@ public final class ReaderCollectionViewCell: UICollectionViewCell {
     public static let reuseIdentifier = "ReaderCollectionViewCell"
 
     public let zoomScrollView = ZoomablePageScrollView()
-    public let webtoonImageView = UIImageView()
+    public let webtoonImageView = TiledImageView()
     private let spinner = UIActivityIndicatorView(style: .medium)
     private let pageLabel = UILabel()
     private let retryButton = UIButton(type: .system)
@@ -31,8 +31,7 @@ public final class ReaderCollectionViewCell: UICollectionViewCell {
         backgroundColor = .black
         contentView.backgroundColor = .black
 
-        // Webtoon image view (seamless top-to-bottom stitching)
-        webtoonImageView.contentMode = .scaleAspectFill
+        // Webtoon CATiledLayer image view (seamless top-to-bottom stitching without GPU RAM spikes)
         webtoonImageView.clipsToBounds = true
         webtoonImageView.isHidden = true
         contentView.addSubview(webtoonImageView)
@@ -70,6 +69,15 @@ public final class ReaderCollectionViewCell: UICollectionViewCell {
         spinner.center = contentView.center
         retryButton.frame = CGRect(x: (contentView.bounds.width - 140) / 2, y: (contentView.bounds.height - 40) / 2, width: 140, height: 40)
         pageLabel.frame = CGRect(x: contentView.bounds.width - 60, y: contentView.bounds.height - 35, width: 50, height: 24)
+    }
+
+    public override func prepareForReuse() {
+        super.prepareForReuse()
+        zoomScrollView.configure(with: nil)
+        webtoonImageView.image = nil
+        spinner.stopAnimating()
+        retryButton.isHidden = true
+        onRetry = nil
     }
 
     public func configure(

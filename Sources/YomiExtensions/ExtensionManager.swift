@@ -17,7 +17,10 @@ public final class ExtensionManager: @unchecked Sendable {
     public func reloadInstalledSources() {
         var sources: [any SourceProtocol] = []
 
-        // Register default native MangaDex connector
+        // Register default native connectors: MangaPill (mainstream catalog) and MangaDex
+        let mangaPill = MangaPillSource()
+        sources.append(mangaPill)
+
         let mangaDex = MangaDexSource()
         sources.append(mangaDex)
 
@@ -65,8 +68,8 @@ public final class ExtensionManager: @unchecked Sendable {
 
     /// Uninstalls and removes a third-party extension from disk.
     public func uninstallExtension(sourceId: Int64) throws {
-        guard sourceId != MangaDexSource.sourceId else {
-            throw YomiError.storageError("Built-in MangaDex connector cannot be uninstalled.")
+        guard sourceId != MangaDexSource.sourceId && sourceId != MangaPillSource.sourceId else {
+            throw YomiError.storageError("Built-in native connectors cannot be uninstalled.")
         }
 
         let fileManager = FileManager.default
