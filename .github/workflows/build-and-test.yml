@@ -22,19 +22,48 @@ jobs:
     - name: Run Swift Unit Tests
       run: swift test -v
 
-    - name: Build Release Frameworks
-      run: swift build -c release
+    - name: Install XcodeGen
+      run: brew install xcodegen
 
-    - name: Stage Build Artifacts
+    - name: Generate Xcode Project
+      run: xcodegen generate
+
+    - name: Build iOS Simulator App (.app for Appetize.io)
+      run: |
+        xcodebuild build \
+          -project Yomi.xcodeproj \
+          -scheme Yomi \
+          -destination "generic/platform=iOS Simulator" \
+          -configuration Release \
+          -derivedDataPath derived_data_sim \
+          CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+
+    - name: Package Simulator App (.zip for Appetize.io)
       run: |
         mkdir -p build_output
-        cp -R .build/release/* build_output/ 2>/dev/null || true
-        # Clean out temporary build objects to keep artifact lightweight
-        rm -rf build_output/*.build build_output/*.dSYM build_output/*.o 2>/dev/null || true
+        cd derived_data_sim/Build/Products/Release-iphonesimulator
+        zip -r -y ../../../../build_output/Yomi-Simulator.zip Yomi.app
+        cd ../../../..
+
+    - name: Build iOS Device App & Package IPA (for Sideloadly / AltStore)
+      run: |
+        xcodebuild build \
+          -project Yomi.xcodeproj \
+          -scheme Yomi \
+          -destination "generic/platform=iOS" \
+          -configuration Release \
+          -derivedDataPath derived_data_device \
+          CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+
+        cd derived_data_device/Build/Products/Release-iphoneos
+        mkdir -p Payload
+        cp -R Yomi.app Payload/
+        zip -r -y ../../../../build_output/Yomi.ipa Payload
+        cd ../../../..
 
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: Yomi-Release-macOS-iOS
+        name: Yomi-App-Builds
         path: build_output/
         retention-days: 14
