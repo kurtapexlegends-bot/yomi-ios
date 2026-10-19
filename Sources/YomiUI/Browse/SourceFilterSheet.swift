@@ -31,7 +31,9 @@ public struct SourceFilterSheet: View {
             .scrollContentBackground(.hidden)
             .background(YomiTheme.pureBlack)
             .navigationTitle("Filters")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Reset") {
