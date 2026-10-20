@@ -5,11 +5,21 @@ Last updated: 2026-10-20
 ## Where things stand
 
 - Repo: `C:\SIDEPROJECTS\yomi-ios`, branch `main`
-- Current app & CI commit: `6290d1a` (`ci: launch the simulator build and capture smoke evidence`)
-- Latest CI for `6290d1a`: **green**, run `39360906228`
-- Latest IPA: `C:\Users\acost\Desktop\Yomi-6290d1a.ipa` (built from `6290d1a`)
-- Previous IPA: `C:\Users\acost\Desktop\Yomi-9940f10.ipa`
-- Working tree: clean (untracked `.ci-artifacts/` and `HANDOFF.md`)
+- Current app & CI commit: `fdc0f80` (`fix(ui): use cross-platform toolbar placements and correct history repository method`)
+- Latest CI for `fdc0f80`: **green (success)**, run `39365836738` (16m 21s)
+- Latest IPA: `C:\Users\acost\Desktop\Yomi.ipa` and `C:\Users\acost\Desktop\Yomi-redesign-fdc0f80.ipa`
+- Verified Simulator Smoke: `com.yomiapp.reader` launched with zero crashes, smoke evidence captured in `01-library-redesign.png`.
+- Working tree: clean
+
+## Visual & Architectural Redesign Overhaul (De-Slopify)
+
+- **OLED Pure Black Base**: Stripped all fuzzy ambient background glow (`RadialGradient`) in favor of True OLED Black (`#000000`) and architectural dark surfaces (`#111113`, `#1C1C1E`) with subtle 0.5pt hairline dividers (`Color.white.opacity(0.065)`).
+- **Artwork Integrity**: Completely removed dark overlays, artificial shadows, and text stamped on top of manga covers. Covers are presented uncompromised in 3:4.2 aspect ratio with clean typography positioned underneath.
+- **Card Clutter Elimination**: Replaced heavy nested card containers with Apple-standard continuous lists across Library, Manga Detail, Updates, History, and Settings.
+- **Editorial Typography**: Standardized all fonts on Apple San Francisco; removed all `design: .rounded` styling across the app.
+- **Native Bottom Bar**: Restored clean 5-tab navigation (**Library -> Updates -> History -> Sources -> Settings**) with ultra-thin system blur and subtle highlight accents.
+- **Modular Boundaries**: Kept all 22 touched files strictly under 500 lines per [`GEMINI.md`](file:///c:/SIDEPROJECTS/yomi-ios/GEMINI.md).
+- **Launch Hygiene**: Removed premature notification permission prompt on initial app startup.
 
 ## What has been completed
 
