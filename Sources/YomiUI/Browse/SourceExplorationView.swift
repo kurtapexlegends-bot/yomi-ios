@@ -19,6 +19,7 @@ public struct SourceExplorationView: View {
     @State private var isFilterSheetPresented: Bool = false
     @State private var loadGeneration: Int = 0
     @State private var loadTask: Task<Void, Never>?
+    @State private var searchDebounceTask: Task<Void, Never>?
 
     private let mangaRepo = MangaRepository()
     private let columns = [GridItem(.adaptive(minimum: 108, maximum: 158), spacing: 12)]
@@ -114,6 +115,7 @@ public struct SourceExplorationView: View {
             if mangas.isEmpty { reload() }
         }
         .onDisappear {
+            searchDebounceTask?.cancel()
             loadTask?.cancel()
             loadGeneration += 1
             isLoading = false
@@ -166,11 +168,22 @@ public struct SourceExplorationView: View {
             YomiSearchField(
                 text: $searchQuery,
                 placeholder: "Search inside \(source.manifest.name)",
-                onSubmit: { reload() }
+                onSubmit: {
+                    searchDebounceTask?.cancel()
+                    reload()
+                }
             )
             .onChange(of: searchQuery) { _, newValue in
-                if newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                searchDebounceTask?.cancel()
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
                     reload()
+                } else {
+                    searchDebounceTask = Task {
+                        try? await Task.sleep(nanoseconds: 400_000_000)
+                        guard !Task.isCancelled else { return }
+                        reload()
+                    }
                 }
             }
 

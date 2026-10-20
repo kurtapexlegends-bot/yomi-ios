@@ -339,6 +339,88 @@ final class ExtensionBridgeTests: XCTestCase {
         XCTAssertEqual(chapters[0]["name"] as? String, "Chapter 10")
         XCTAssertEqual(chapters[1]["name"] as? String, "Chapter 9")
     }
+
+    func testHTMLBridgeQueryAttrFragmentEmptySelector() throws {
+        guard let context = JSContext() else {
+            XCTFail("Failed to create JSContext")
+            return
+        }
+        HTMLBridge.inject(into: context)
+
+        // Fragment without wrapping body
+        let imgHtml = "<img alt='Test Page' src='https://img-r1.2xstorage.com/0.webp' data-src='https://img-r1.2xstorage.com/data.webp'>"
+        context.setObject(imgHtml, forKeyedSubscript: "__imgHtml" as NSString)
+
+        let srcScript = "__yomi_attr(__imgHtml, '', 'src')"
+        let srcResult = context.evaluateScript(srcScript)
+        XCTAssertEqual(srcResult?.toString(), "https://img-r1.2xstorage.com/0.webp")
+
+        let dataSrcScript = "__yomi_attr(__imgHtml, '', 'data-src')"
+        let dataSrcResult = context.evaluateScript(dataSrcScript)
+        XCTAssertEqual(dataSrcResult?.toString(), "https://img-r1.2xstorage.com/data.webp")
+
+        // Batch extraction
+        let pageHtml = """
+        <div class="container-chapter-reader">
+            <img src="https://img-r1.2xstorage.com/0.webp">
+            <img src="https://img-r1.2xstorage.com/1.webp">
+        </div>
+        """
+        context.setObject(pageHtml, forKeyedSubscript: "__pageHtml" as NSString)
+        let attrAllScript = "__yomi_attrAll(__pageHtml, '.container-chapter-reader img', 'src')"
+        guard let arrayResult = context.evaluateScript(attrAllScript)?.toArray() as? [String] else {
+            XCTFail("attrAll failed")
+            return
+        }
+        XCTAssertEqual(arrayResult.count, 2)
+        XCTAssertEqual(arrayResult[0], "https://img-r1.2xstorage.com/0.webp")
+        XCTAssertEqual(arrayResult[1], "https://img-r1.2xstorage.com/1.webp")
+    }
+
+    func testMangaKakalotSearchListParsing() throws {
+        guard let context = JSContext() else {
+            XCTFail("Failed to create JSContext")
+            return
+        }
+        HTMLBridge.inject(into: context)
+        let pkg = RemoteExtensionPackage(
+            id: 2528986671771677900,
+            name: "MangaKakalot",
+            lang: "en",
+            baseUrl: "https://www.mangakakalove.com",
+            scriptUrl: ""
+        )
+        let script = RepoManager.shared.generateScraperScript(for: pkg)
+        context.evaluateScript(script)
+
+        let searchHtml = """
+        <div id="owl-demo" class="owl-carousel">
+            <div class="item"><h3><a href="/manga/carousel-item">Carousel Title</a></h3></div>
+        </div>
+        <div class="panel_story_list">
+            <div class="story_item">
+                <a href="https://www.mangakakalove.com/manga/naruto">
+                    <img src="https://img-r1.2xstorage.com/thumb/naruto.webp" alt="Naruto">
+                </a>
+                <div class="story_item_right">
+                    <h3 class="story_name"><a href="https://www.mangakakalove.com/manga/naruto">Naruto</a></h3>
+                </div>
+            </div>
+        </div>
+        """
+        context.setObject(searchHtml, forKeyedSubscript: "__searchHtml" as NSString)
+        let parseScript = "Extension.parseSearchList(__searchHtml)"
+        guard let result = context.evaluateScript(parseScript), !result.isUndefined, !result.isNull else {
+            XCTFail("Extension.parseSearchList returned nil or undefined")
+            return
+        }
+        let dict = result.toDictionary() as? [String: Any]
+        let mangas = dict?["mangas"] as? [[String: Any]]
+        XCTAssertEqual(mangas?.count, 1)
+        XCTAssertEqual(mangas?.first?["title"] as? String, "Naruto")
+        XCTAssertEqual(mangas?.first?["url"] as? String, "https://www.mangakakalove.com/manga/naruto")
+        XCTAssertEqual(mangas?.first?["thumbnailUrl"] as? String, "https://img-r1.2xstorage.com/thumb/naruto.webp")
+    }
 }
 
 

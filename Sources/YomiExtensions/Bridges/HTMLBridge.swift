@@ -36,8 +36,17 @@ public enum HTMLBridge {
         let queryAttr: @convention(block) (String, String, String) -> String = { html, selector, attribute in
             do {
                 let doc = try SwiftSoup.parse(html)
-                let element = selector.isEmpty ? doc.body() : try doc.select(selector).first()
-                return try element?.attr(attribute) ?? ""
+                let element: Element?
+                if selector.isEmpty {
+                    element = doc.body()?.children().first() ?? doc.body()
+                } else {
+                    element = try doc.select(selector).first()
+                }
+                let val = try element?.attr(attribute) ?? ""
+                if val.isEmpty, let bodyVal = try? doc.body()?.attr(attribute), !bodyVal.isEmpty {
+                    return bodyVal
+                }
+                return val
             } catch {
                 return ""
             }
