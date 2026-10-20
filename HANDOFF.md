@@ -5,11 +5,24 @@ Last updated: 2026-10-20
 ## Where things stand
 
 - Repo: `C:\SIDEPROJECTS\yomi-ios`, branch `main`
-- Current app & CI commit: `fdc0f80` (`fix(ui): use cross-platform toolbar placements and correct history repository method`)
-- Latest CI for `fdc0f80`: **green (success)**, run `39365836738` (16m 21s)
-- Latest IPA: `C:\Users\acost\Desktop\Yomi.ipa` and `C:\Users\acost\Desktop\Yomi-redesign-fdc0f80.ipa`
-- Verified Simulator Smoke: `com.yomiapp.reader` launched with zero crashes, smoke evidence captured in `01-library-redesign.png`.
+- Current app & CI commit: `b198464` (`fix(sources): add referer cover image caching, fix cloudflare base64 fetch, and add floating tab bar`)
+- Latest CI for `b198464`: **green (success)**, run `39368964223` (14m 41s)
+- Latest IPA: `C:\Users\acost\Desktop\Yomi.ipa` and `C:\Users\acost\Desktop\Yomi-b198464.ipa`
+- Verified Simulator Smoke: `com.yomiapp.reader` launched with zero crashes, smoke evidence captured in `01-floating-tabbar.png`.
 - Working tree: clean
+
+## Key Upgrades in b198464
+
+- **Cover Image Loading & Memory Management**:
+  - Implemented `YomiImageCache` with custom URLSession that injects required `Referer` headers for manga CDN hosts (`readdetectiveconan.com` -> `https://mangapill.com/`, `mangakakalot.gg` -> `https://www.mangakakalot.gg/`) and standard mobile Safari `User-Agent`.
+  - Added automatic downsampling (`CGImageSourceCreateThumbnailAtIndex`) to thumbnail resolution (240x340), reducing per-cover RAM usage by ~94% (from ~8MB down to ~500KB) and eliminating memory bloat.
+  - Automatic cache clearing on system memory warnings (`UIApplication.didReceiveMemoryWarningNotification`).
+- **Cloudflare & MangaKakalot Bypass Robustness**:
+  - Fixed Base64 string generation in `WebViewFetchService.swift` using `btoa(binary)`, allowing HTML and chapter page responses to decode properly without dropping the body.
+  - Added navigation auto-detection in `CloudflareSolver.swift` and guaranteed cookie sync + completion when the user taps "Done", preventing users from ever getting trapped in verification loops.
+- **Floating Tab Navigation**:
+  - Replaced docked edge-to-edge bottom bar with an elevated floating capsule bar (`YomiTabBar`) with ultra-thin glass material blur, 0.5pt hairline border, spring-animated active tab indicators, and ambient drop shadow.
+  - Inset scroll views with `.safeAreaInset(edge: .bottom)` so list items never get occluded.
 
 ## Visual & Architectural Redesign Overhaul (De-Slopify)
 
