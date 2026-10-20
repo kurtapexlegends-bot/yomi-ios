@@ -5,11 +5,29 @@ Last updated: 2026-10-20
 ## Where things stand
 
 - Repo: `C:\SIDEPROJECTS\yomi-ios`, branch `main`
-- Current app & CI commit: `c9f96ba` (`fix(mangakakalot): route to mirror, load dynamic chapter API & set CDN referers`)
-- Latest CI for `c9f96ba`: **green (success)**, run `39420023203` (16m 34s)
-- Latest IPA: `C:\Users\acost\Desktop\Yomi.ipa` and `C:\Users\acost\Desktop\Yomi-c9f96ba.ipa`
-- Verified Simulator Smoke: `com.yomiapp.reader` launched with zero crashes, smoke evidence captured in `01-mangakakalot-verified.png`.
+- Current app & CI commit: `389d3b5` (`fix(mangakakalot): fix fragment queryAttr in HTMLBridge, add batch getPageList & target search parser`)
+- Latest CI for `389d3b5`: **green (success)**, run `39435030829` (15m 16s)
+- Latest IPA: `C:\Users\acost\Desktop\Yomi.ipa` and `C:\Users\acost\Desktop\Yomi-389d3b5.ipa`
+- Verified Simulator Smoke: `com.yomiapp.reader` launched with zero crashes.
 - Working tree: clean
+
+## Key Upgrades in 389d3b5 & Chapter Pages / Search Resolution
+
+- **Chapter "No Pages Available" Bug Resolved (Fragment QueryAttr in HTMLBridge & Batch Extraction)**:
+  - **Root Cause**: In `HTMLBridge.swift`, `queryAttr` evaluated `let element = selector.isEmpty ? doc.body() : try doc.select(selector).first()`. When scraping individual image nodes (`<img src="...">`), `getPageList` in `ScraperScriptGenerator.swift` invoked `__yomi_attr(img, "", "src")` with an empty selector string. Because `element` evaluated to `doc.body()` (which wraps the fragment and has no `src` attribute), `attr("src")` returned an empty string `""`. Consequently, all image URLs were filtered out by `p.url.length > 0`, returning an empty array `[]` and displaying "No Pages Available" in the reader.
+  - **Fix**:
+    1. Fixed `queryAttr` in `HTMLBridge.swift` so that when `selector.isEmpty`, `element` evaluates to `doc.body()?.children().first() ?? doc.body()`, properly resolving the root element of HTML fragments.
+    2. Added direct, single-pass batch attribute extraction using `__yomi_attrAll(html, ".container-chapter-reader img, img.img-loading, #readerarea img", "src")` in `getPageList`, eliminating sub-parsing overhead and extracting all chapter pages in a single call.
+    3. Added fallback regex extraction for chapter images as an additional safety net.
+
+- **MangaKakalot Search "Doesn't Work" Bug Resolved (Pollution by Top Carousel & Keyboard Debounce)**:
+  - **Root Cause**:
+    1. In `ScraperScriptGenerator.swift`, `parseMangaList` included the generic selector `.item`. On MangaKakalot/MangaLove pages, the top header features an `owl-carousel` slider containing 20 `<div class="item">` elements of popular/trending manga. When performing any search query, the top 20 carousel items appeared first in DOM order and were parsed before the actual search results, completely obscuring matched results.
+    2. In `SourceExplorationView.swift`, `YomiSearchField` previously only triggered `reload()` on explicit keyboard `onSubmit`. Users who typed in a query without pressing return/search were not seeing search results trigger.
+  - **Fix**:
+    1. Separated search result parsing into `parseSearchList(html)`, specifically scoping selectors to `.panel_story_list .story_item, .panel-search-story .itemupdate, .story_item`. Removed `.item` from `parseMangaList`.
+    2. Implemented query normalization (`replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "")`) matching MangaKakalot's URL slug specification.
+    3. Added a 400ms search debounce task in `SourceExplorationView.swift` so typing automatically triggers search without requiring an explicit keyboard submit.
 
 ## Key Upgrades in c9f96ba & MangaKakalot Resolution
 
