@@ -77,4 +77,24 @@ public final class CategoryRepository: Sendable {
             )
         }
     }
+
+    /// Retrieves a mapping of category IDs to their count of library mangas.
+    public func getCategoryMangaCounts() async throws -> [Int64: Int] {
+        try await dbManager.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT mc.category_id, COUNT(DISTINCT mc.manga_id) as count
+                FROM manga_categories mc
+                INNER JOIN mangas m ON m.id = mc.manga_id
+                WHERE m.in_library = 1
+                GROUP BY mc.category_id
+            """)
+            var result: [Int64: Int] = [:]
+            for row in rows {
+                let catId: Int64 = row["category_id"]
+                let count: Int = row["count"]
+                result[catId] = count
+            }
+            return result
+        }
+    }
 }

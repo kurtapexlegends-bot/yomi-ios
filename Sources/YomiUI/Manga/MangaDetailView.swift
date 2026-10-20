@@ -128,11 +128,11 @@ public struct MangaDetailView: View {
                     )
 
                     if !isSourceAvailable {
-                        sourceUnavailableBanner
+                        MangaDetailSourceUnavailableBanner()
                     }
 
                     if let errorMessage {
-                        errorBanner(errorMessage)
+                        MangaDetailErrorBanner(message: errorMessage)
                     }
 
                     if progressFraction > 0 {
@@ -316,32 +316,6 @@ public struct MangaDetailView: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(YomiTheme.textSecondary)
         }
-    }
-
-    private var sourceUnavailableBanner: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle")
-                .foregroundStyle(YomiTheme.warning)
-            Text("Source is uninstalled. Local chapters are readable, but new chapters cannot be fetched.")
-                .font(YomiFont.caption)
-                .foregroundStyle(YomiTheme.textSecondary)
-        }
-        .padding(10)
-        .background(YomiTheme.warning.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-    }
-
-    private func errorBanner(_ message: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "wifi.slash")
-                .foregroundStyle(YomiTheme.danger)
-            Text(message)
-                .font(YomiFont.caption)
-                .foregroundStyle(YomiTheme.textSecondary)
-        }
-        .padding(10)
-        .background(YomiTheme.danger.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     // MARK: - Data Operations

@@ -218,5 +218,17 @@ public final class ReaderViewController: UIViewController {
         pageImages = pageImages.filter { $0.key == current }
         ImageDownsampler.shared.purgeMemory()
     }
+
+    public override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        let targetPage = currentPageIndex
+        coordinator.animate(alongsideTransition: { [weak self] _ in
+            guard let self = self, self.isViewLoaded, let cv = self.collectionView else { return }
+            cv.collectionViewLayout.invalidateLayout()
+        }) { [weak self] _ in
+            guard let self = self, self.isViewLoaded, let cv = self.collectionView else { return }
+            self.scrollToPage(index: targetPage, animated: false)
+        }
+    }
 }
 #endif

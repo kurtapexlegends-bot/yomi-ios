@@ -242,103 +242,17 @@ public struct UpdatesView: View {
 
             LazyVStack(spacing: 0) {
                 ForEach(section.items) { item in
-                    updateRow(item)
+                    UpdateRowView(
+                        item: item,
+                        isDownloaded: downloadedIDs.contains(item.chapterId),
+                        sourceName: sourceName(for: item.sourceId),
+                        relativeDate: relativeDate(item),
+                        onOpenDetail: { openDetail(for: item) },
+                        onOpenReader: { openReader(for: item) },
+                        onToggleDownload: { toggleDownload(item) },
+                        onToggleRead: { toggleRead(item) }
+                    )
                 }
-            }
-        }
-    }
-
-    private func updateRow(_ item: ChapterUpdateItem) -> some View {
-        HStack(spacing: 12) {
-            Button {
-                openDetail(for: item)
-            } label: {
-                YomiCoverImage(
-                    urlString: item.effectiveThumbnailUrl,
-                    title: item.mangaTitle,
-                    cornerRadius: 6
-                )
-                .frame(width: 44, height: 62)
-                .clipped()
-            }
-            .buttonStyle(.plain)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.mangaTitle)
-                    .font(YomiFont.cardTitle)
-                    .foregroundStyle(YomiTheme.textPrimary)
-                    .lineLimit(1)
-
-                HStack(spacing: 6) {
-                    if !item.read {
-                        Circle()
-                            .fill(YomiTheme.unreadBadge)
-                            .frame(width: 5, height: 5)
-                    }
-                    Text(item.displayChapterTitle)
-                        .font(YomiFont.caption)
-                        .foregroundStyle(item.read ? YomiTheme.textTertiary : YomiTheme.textPrimary)
-                        .lineLimit(1)
-                }
-
-                HStack(spacing: 6) {
-                    YomiTag(sourceName(for: item.sourceId), tint: YomiTheme.textTertiary)
-                    Text(relativeDate(item))
-                        .font(YomiFont.micro)
-                        .foregroundStyle(YomiTheme.textTertiary)
-                    if downloadedIDs.contains(item.chapterId) {
-                        Image(systemName: "arrow.down.circle.fill")
-                            .font(.system(size: 9))
-                            .foregroundStyle(YomiTheme.success)
-                    }
-                }
-            }
-
-            Spacer(minLength: 4)
-
-            HStack(spacing: 8) {
-                Button {
-                    openReader(for: item)
-                } label: {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 28, height: 28)
-                        .background(YomiTheme.accent)
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    toggleDownload(item)
-                } label: {
-                    Image(systemName: downloadedIDs.contains(item.chapterId) ? "checkmark.circle.fill" : "arrow.down.circle")
-                        .font(.system(size: 15, weight: .regular))
-                        .foregroundStyle(downloadedIDs.contains(item.chapterId) ? YomiTheme.success : YomiTheme.textTertiary)
-                        .frame(width: 28, height: 28)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.vertical, 8)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(YomiTheme.border).frame(height: 0.5)
-        }
-        .contextMenu {
-            Button {
-                toggleRead(item)
-            } label: {
-                Label(item.read ? "Mark as Unread" : "Mark as Read", systemImage: item.read ? "envelope.badge" : "checkmark.circle")
-            }
-            Button {
-                toggleDownload(item)
-            } label: {
-                Label(downloadedIDs.contains(item.chapterId) ? "Delete Download" : "Download Chapter", systemImage: downloadedIDs.contains(item.chapterId) ? "trash" : "arrow.down.circle")
-            }
-            Button {
-                openDetail(for: item)
-            } label: {
-                Label("View Details", systemImage: "info.circle")
             }
         }
     }
@@ -496,30 +410,5 @@ public struct UpdatesView: View {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
-    }
-}
-
-// MARK: - Models
-
-private struct UpdateDateSection {
-    let title: String
-    let items: [ChapterUpdateItem]
-}
-
-public enum UpdateFilter: String, CaseIterable {
-    case all = "All"
-    case unread = "Unread"
-    case downloaded = "Offline"
-    case bookmarked = "Bookmarked"
-
-    public var title: String { rawValue }
-
-    public var icon: String {
-        switch self {
-        case .all: return "bolt.fill"
-        case .unread: return "circle.fill"
-        case .downloaded: return "arrow.down.circle.fill"
-        case .bookmarked: return "bookmark.fill"
-        }
     }
 }

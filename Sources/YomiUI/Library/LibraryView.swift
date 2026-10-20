@@ -7,6 +7,8 @@ import YomiDownload
 public struct LibraryView: View {
     @State private var mangas: [Manga] = []
     @State private var categories: [YomiCategory] = []
+    @State private var categoryCounts: [Int64: Int] = [:]
+    @State private var totalLibraryCount: Int = 0
     @State private var selectedCategoryId: Int64? = nil
     @State private var searchQuery: String = ""
     @State private var isLoading: Bool = false
@@ -215,7 +217,7 @@ public struct LibraryView: View {
             HStack(spacing: 8) {
                 categoryPill(
                     title: "All",
-                    count: mangas.count,
+                    count: totalLibraryCount,
                     isSelected: selectedCategoryId == nil
                 ) {
                     selectCategory(nil)
@@ -224,7 +226,7 @@ public struct LibraryView: View {
                 ForEach(categories) { category in
                     categoryPill(
                         title: category.name,
-                        count: nil,
+                        count: category.id.flatMap { categoryCounts[$0] },
                         isSelected: selectedCategoryId == category.id
                     ) {
                         selectCategory(category)
@@ -399,10 +401,14 @@ public struct LibraryView: View {
         if showsSpinner { isLoading = true }
         do {
             async let categoriesTask = categoryRepo.getAllCategories()
+            async let categoryCountsTask = categoryRepo.getCategoryMangaCounts()
+            async let totalCountTask = mangaRepo.getLibraryMangaCount()
             async let progressTask = chapterRepo.getLibraryProgress()
             async let historyTask = historyRepo.getHistory(limit: 250)
 
             let loadedCategories = try await categoriesTask
+            let loadedCategoryCounts = (try? await categoryCountsTask) ?? [:]
+            let loadedTotalCount = (try? await totalCountTask) ?? 0
             let loadedMangas: [Manga]
             if let selectedCategoryId {
                 loadedMangas = try await mangaRepo.getLibraryMangas(forCategoryId: selectedCategoryId)
@@ -419,6 +425,8 @@ public struct LibraryView: View {
             }
 
             categories = loadedCategories
+            categoryCounts = loadedCategoryCounts
+            totalLibraryCount = loadedTotalCount
             mangas = loadedMangas
             progressByManga = progress
             lastReadByManga = lastRead

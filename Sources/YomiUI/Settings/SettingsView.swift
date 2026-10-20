@@ -103,11 +103,12 @@ public struct SettingsView: View {
             .alert("Purge Image Memory Cache", isPresented: $isShowingClearCacheAlert) {
                 Button("Purge", role: .destructive) {
                     ImageDownsampler.shared.purgeMemory()
-                    statusToast = "Decoded image memory cleared."
+                    YomiImageCache.shared.clear()
+                    statusToast = "Image caches purged."
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Clears in-memory decoded image textures. Downloaded chapters remain intact.")
+                Text("Clears in-memory decoded image textures and cached network covers. Downloaded chapters remain intact.")
             }
             .alert("Rebuild Search Index", isPresented: $isShowingRebuildFTSAlert) {
                 Button("Rebuild", role: .destructive) { rebuildFTSIndex() }

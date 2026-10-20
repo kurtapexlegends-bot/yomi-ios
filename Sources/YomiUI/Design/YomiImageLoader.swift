@@ -53,6 +53,13 @@ public final class YomiImageCache: @unchecked Sendable {
     }
     #endif
 
+    public func clear() {
+        #if canImport(UIKit)
+        cache.removeAllObjects()
+        #endif
+        session.configuration.urlCache?.removeAllCachedResponses()
+    }
+
     public func loadImage(from urlString: String, targetSize: CGSize = CGSize(width: 320, height: 440)) async -> YomiImage? {
         #if canImport(UIKit)
         let cacheKey = "\(urlString)-\(Int(targetSize.width))x\(Int(targetSize.height))"

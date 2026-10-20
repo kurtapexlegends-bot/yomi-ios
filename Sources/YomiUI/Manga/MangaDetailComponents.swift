@@ -414,3 +414,38 @@ public struct MangaChapterFilterBar: View {
         }
     }
 }
+
+// MARK: - Status Banners
+
+struct MangaDetailSourceUnavailableBanner: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle")
+                .foregroundStyle(YomiTheme.warning)
+            Text("Source is uninstalled. Local chapters are readable, but new chapters cannot be fetched.")
+                .font(YomiFont.caption)
+                .foregroundStyle(YomiTheme.textSecondary)
+        }
+        .padding(10)
+        .background(YomiTheme.warning.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+struct MangaDetailErrorBanner: View {
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "wifi.slash")
+                .foregroundStyle(YomiTheme.danger)
+            Text(message)
+                .font(YomiFont.caption)
+                .foregroundStyle(YomiTheme.textSecondary)
+        }
+        .padding(10)
+        .background(YomiTheme.danger.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+}
+

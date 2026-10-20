@@ -117,6 +117,13 @@ public final class MangaRepository: Sendable {
         }
     }
 
+    /// Returns the total count of mangas in the library.
+    public func getLibraryMangaCount() async throws -> Int {
+        try await dbManager.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM mangas WHERE in_library = 1") ?? 0
+        }
+    }
+
     /// Deletes a manga and its cascading chapters from disk.
     public func delete(id: Int64) async throws {
         try await dbManager.write { db in

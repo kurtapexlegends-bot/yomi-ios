@@ -112,6 +112,7 @@ public struct AppRootView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 6)
         }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
     // MARK: - iPad
@@ -169,6 +170,9 @@ public struct YomiTabBar: View {
             ForEach(AppTab.allCases) { tab in
                 let isSelected = selection == tab
                 Button {
+                    #if canImport(UIKit)
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    #endif
                     withAnimation(.spring(response: 0.26, dampingFraction: 0.78)) {
                         selection = tab
                     }

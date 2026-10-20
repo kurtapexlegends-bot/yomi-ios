@@ -11,7 +11,33 @@ Last updated: 2026-10-20
 - Verified Simulator Smoke: `com.yomiapp.reader` launched with zero crashes, smoke evidence captured in `01-extensions-performance-build.png`.
 - Working tree: clean
 
-## Key Upgrades in f79daea
+## Key Upgrades in f79daea & Current Session
+
+- **Full Architectural Modularity (<500 lines per file)**:
+  - Every single `.swift` file across `Sources/` and `Tests/` has been audited and modularized to strictly obey the `<500 lines` rule from [`GEMINI.md`](file:///c:/SIDEPROJECTS/yomi-ios/GEMINI.md).
+  - Extracted `ReaderBridgeView.swift` (90 lines) from `ReaderContainerView.swift` (reduced to 473 lines).
+  - Extracted `ReaderChapterListSheet.swift` (109 lines) and `ReaderSettingsSheet.swift` (203 lines) from `ReaderOverlayView.swift` (reduced to 290 lines).
+  - Extracted `MangaCategorySheet.swift` (199 lines) and `MangaTrackingSheet.swift` (329 lines) replacing monolithic `MangaDetailSheets.swift`.
+  - Extracted `UpdatesComponents.swift` (129 lines) from `UpdatesView.swift` (reduced to 377 lines).
+  - Extracted status banners to `MangaDetailComponents.swift` (reducing `MangaDetailView.swift` to 419 lines).
+
+- **Reader Device Orientation & Viewport Transition**:
+  - Implemented `viewWillTransition(to:with:)` in `ReaderViewController.swift`. Device rotation between portrait and landscape now smoothly invalidates the collection view layout during transition and re-centers on `currentPageIndex`, preventing page clipping and viewport loss.
+
+- **Library Category Accuracy & Badge Counts**:
+  - Added `getCategoryMangaCounts()` to `CategoryRepository.swift` and `getLibraryMangaCount()` to `MangaRepository.swift`.
+  - Fixed the UI bug where selecting a category caused the "All" pill to incorrectly display the selected category's manga count.
+  - Enabled live title count badges on individual category pills in `LibraryView.swift`.
+
+- **Floating Tab Bar & Keyboard Avoidance**:
+  - Added `.ignoresSafeArea(.keyboard, edges: .bottom)` to `AppRootView.swift`, ensuring the floating tab bar remains securely anchored at the bottom behind the virtual keyboard when typing in search fields.
+  - Added native haptic feedback (`UIImpactFeedbackGenerator(style: .light)`) on tab switches.
+
+- **Source Catalog Infinite Scroll**:
+  - Configured `SourceExplorationView.swift` with auto-paging on bottom visibility, allowing continuous infinite scrolling through manga catalogs without manual button taps.
+
+- **Memory & Cache Eviction in Settings**:
+  - Added `YomiImageCache.shared.clear()` and connected it to "Purge Image Memory Cache" in `SettingsView.swift`, completely flushing decoded textures and cached network covers.
 
 - **Extensions Page 120 FPS Performance & Lag Elimination**:
   - **Flattened Lazy Virtualization**: Removed the nested non-lazy `VStack` wrapping `ForEach`. Rows are now directly hosted in the top-level `LazyVStack`, preventing simultaneous instantiation of 1,500+ package views.

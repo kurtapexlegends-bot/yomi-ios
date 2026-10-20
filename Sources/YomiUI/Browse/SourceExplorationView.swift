@@ -241,6 +241,9 @@ public struct SourceExplorationView: View {
         }
         .buttonStyle(YomiSecondaryButtonStyle())
         .disabled(isLoading || isLoadingMore)
+        .onAppear {
+            fetchNextPage()
+        }
     }
 
     private var skeletonGrid: some View {
