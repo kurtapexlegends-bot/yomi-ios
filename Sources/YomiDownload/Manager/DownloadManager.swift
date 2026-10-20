@@ -10,6 +10,22 @@ public enum DownloadStatus: Sendable, Equatable {
     case paused
 }
 
+/// A completed chapter archive discovered on disk.
+public struct DownloadedChapterFile: Identifiable, Hashable, Sendable {
+    public var id: String { "\(mangaId)_\(chapterId)" }
+    public let mangaId: Int64
+    public let chapterId: Int64
+    public let fileURL: URL
+    public let byteCount: Int64
+
+    public init(mangaId: Int64, chapterId: Int64, fileURL: URL, byteCount: Int64) {
+        self.mangaId = mangaId
+        self.chapterId = chapterId
+        self.fileURL = fileURL
+        self.byteCount = byteCount
+    }
+}
+
 public struct DownloadJob: Identifiable, Sendable {
     public let id: UUID
     public let manga: Manga
@@ -97,6 +113,81 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate, @unche
         }
     }
 
+    /// Lists every completed .cbz archive on disk, newest directory first.
+    public func listDownloadedChapterFiles() -> [DownloadedChapterFile] {
+        guard let root = downloadsRootURL() else { return [] }
+        let fileManager = FileManager.default
+        guard let mangaDirs = try? fileManager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var files: [DownloadedChapterFile] = []
+        for mangaDir in mangaDirs {
+            guard (try? mangaDir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
+                  let mangaId = Int64(mangaDir.lastPathComponent) else { continue }
+            let chapterFiles = (try? fileManager.contentsOfDirectory(
+                at: mangaDir,
+                includingPropertiesForKeys: [.fileSizeKey],
+                options: [.skipsHiddenFiles]
+            )) ?? []
+
+            for file in chapterFiles where file.pathExtension.lowercased() == "cbz" {
+                guard let chapterId = Int64(file.deletingPathExtension().lastPathComponent) else { continue }
+                let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                files.append(DownloadedChapterFile(
+                    mangaId: mangaId,
+                    chapterId: chapterId,
+                    fileURL: file,
+                    byteCount: Int64(size)
+                ))
+            }
+        }
+        return files.sorted { $0.fileURL.path < $1.fileURL.path }
+    }
+
+    /// Number of downloaded chapters per manga, used by library filters and badges.
+    public func downloadedChapterCounts() -> [Int64: Int] {
+        listDownloadedChapterFiles().reduce(into: [Int64: Int]()) { counts, file in
+            counts[file.mangaId, default: 0] += 1
+        }
+    }
+
+    public func downloadedChapterIDs() -> Set<Int64> {
+        Set(listDownloadedChapterFiles().map(\.chapterId))
+    }
+
+    public func totalDownloadedBytes() -> Int64 {
+        listDownloadedChapterFiles().reduce(0) { $0 + $1.byteCount }
+    }
+
+    /// Deletes every downloaded archive. Active queue jobs are cancelled first.
+    public func deleteAllDownloadedChapters() throws {
+        queueLock.lock()
+        queue.removeAll()
+        queueLock.unlock()
+
+        guard let root = downloadsRootURL(), FileManager.default.fileExists(atPath: root.path) else { return }
+        try FileManager.default.removeItem(at: root)
+    }
+
+    private func downloadsRootURL() -> URL? {
+        do {
+            let appSupport = try FileManager.default.url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )
+            return appSupport.appendingPathComponent("Yomi/downloads", isDirectory: true)
+        } catch {
+            return nil
+        }
+    }
+
     /// Pauses an active or queued download job.
     public func pause(jobId: UUID) {
         queueLock.lock()
@@ -111,6 +202,30 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate, @unche
         queueLock.lock()
         defer { queueLock.unlock() }
         queue.removeAll { $0.id == jobId }
+    }
+
+    /// Removes completed and failed jobs while keeping active work untouched.
+    public func clearFinishedJobs() {
+        queueLock.lock()
+        queue.removeAll { job in
+            switch job.status {
+            case .completed, .failed:
+                return true
+            case .queued, .downloading, .paused:
+                return false
+            }
+        }
+        queueLock.unlock()
+    }
+
+    /// Requeues a failed download. Existing partial archives are overwritten on completion.
+    public func retry(jobId: UUID) {
+        queueLock.lock()
+        if let index = queue.firstIndex(where: { $0.id == jobId }) {
+            queue[index].status = .queued
+        }
+        queueLock.unlock()
+        processNextJobIfNeeded()
     }
 
     // MARK: - Queue Processing

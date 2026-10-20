@@ -7,44 +7,41 @@ public enum NetworkBridge {
 
     /// Injects synchronous HTTP request capabilities and a modern fetch wrapper into JSContext.
     public static func inject(into context: JSContext) {
-        
         let nativeFetchBlock: @convention(block) (String, String?) -> [String: Any] = { urlString, optionsJson in
-            var normalizedUrl = urlString
-            if normalizedUrl.contains("mangakakalot") {
-                // The legacy .com domain is dead (522) and the canonical host is www.mangakakalot.gg.
-                normalizedUrl = normalizedUrl
-                    .replacingOccurrences(of: "://www.mangakakalot.com", with: "://www.mangakakalot.gg")
-                    .replacingOccurrences(of: "://mangakakalot.com", with: "://www.mangakakalot.gg")
-                    .replacingOccurrences(of: "://mangakakalot.gg", with: "://www.mangakakalot.gg")
+            guard var url = URL(string: normalizeURLString(urlString)) else {
+                return ["status": 400, "error": "Invalid URL string: \(urlString)"]
             }
 
-            guard let url = URL(string: normalizedUrl) else {
-                return ["status": 400, "error": "Invalid URL string: \(urlString)"]
+            // Canonicalize the dead MangaKakalot host before any cookie or challenge lookup.
+            if url.host?.contains("mangakakalot") == true {
+                var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+                components?.host = "www.mangakakalot.gg"
+                if let canonical = components?.url { url = canonical }
             }
 
             var request = URLRequest(url: url)
             request.timeoutInterval = 20
             request.setValue(defaultUserAgent, forHTTPHeaderField: "User-Agent")
+            request.setValue("*/*", forHTTPHeaderField: "Accept")
 
-            // Forward clearance cookies stored in HTTPCookieStorage
+            // Forward clearance cookies stored in HTTPCookieStorage.
             if let cookies = HTTPCookieStorage.shared.cookies(for: url), !cookies.isEmpty {
-                let cookieHeaders = HTTPCookie.requestHeaderFields(with: cookies)
-                for (k, v) in cookieHeaders {
-                    request.setValue(v, forHTTPHeaderField: k)
+                for (key, value) in HTTPCookie.requestHeaderFields(with: cookies) {
+                    request.setValue(value, forHTTPHeaderField: key)
                 }
             }
 
-            // Parse optional fetch options (headers, method, body)
-            if let optionsJson = optionsJson,
+            // Parse optional fetch options (headers, method, body).
+            if let optionsJson,
                let data = optionsJson.data(using: .utf8),
                let options = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                
+
                 if let method = options["method"] as? String {
                     request.httpMethod = method.uppercased()
                 }
                 if let headers = options["headers"] as? [String: String] {
-                    for (k, v) in headers {
-                        request.setValue(v, forHTTPHeaderField: k)
+                    for (key, value) in headers {
+                        request.setValue(value, forHTTPHeaderField: key)
                     }
                 }
                 if let body = options["body"] as? String {
@@ -52,67 +49,26 @@ public enum NetworkBridge {
                 }
             }
 
-            let semaphore = DispatchSemaphore(value: 0)
-            var resultDict: [String: Any] = [:]
+            var result = performURLSessionFetch(request)
 
-            let task = URLSession.shared.dataTask(with: request) { data, response, error in
-                defer { semaphore.signal() }
-
-                if let error = error {
-                    resultDict = ["status": 0, "error": error.localizedDescription]
-                    return
+            // URLSession can present a valid cf_clearance cookie and still be rejected because
+            // Cloudflare binds clearance to the browser TLS fingerprint. For hosts already
+            // verified in WebKit, replay the request inside the same WebKit session.
+            if result["isCloudflare"] as? Bool == true,
+               CloudflareSolver.shared.shouldUseWebViewFetch(for: url),
+               let webKitResult = WebViewFetchService.fetchSync(request) {
+                let webKitChallenge = webKitResult["isCloudflare"] as? Bool == true
+                if !webKitChallenge, (webKitResult["status"] as? Int ?? 0) > 0 {
+                    result = webKitResult
                 }
-
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    resultDict = ["status": 0, "error": "Invalid HTTP response"]
-                    return
-                }
-
-                let statusCode = httpResponse.statusCode
-                var headersMap: [String: String] = [:]
-                for (k, v) in httpResponse.allHeaderFields {
-                    headersMap["\(k)".lowercased()] = "\(v)"
-                }
-
-                let bodyString = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                let loweredBody = bodyString.lowercased()
-                let serverHeader = headersMap["server"]?.lowercased() ?? ""
-                let isMitigatedChallenge = headersMap["cf-mitigated"]?.lowercased() == "challenge"
-                let challengeMarkers = [
-                    "cf-browser-verification",
-                    "challenge-platform",
-                    "just a moment",
-                    "attention required",
-                    "enable javascript and cookies",
-                    "challenges.cloudflare.com",
-                    "cf_chl_opt",
-                    "cf-chl"
-                ]
-                let hasChallengeMarker = challengeMarkers.contains { loweredBody.contains($0) }
-
-                // Cloudflare challenge detection. MangaKakalot answers with an empty 403 body and
-                // only the `cf-mitigated: challenge` header, so header-based detection is required.
-                let isCloudflare = isMitigatedChallenge ||
-                    (serverHeader.contains("cloudflare") && (statusCode == 403 || statusCode == 429 || statusCode == 503)) ||
-                    ((statusCode == 403 || statusCode == 429 || statusCode == 503) && hasChallengeMarker)
-
-                resultDict = [
-                    "status": statusCode,
-                    "headers": headersMap,
-                    "body": bodyString,
-                    "isCloudflare": isCloudflare
-                ]
             }
 
-            task.resume()
-            _ = semaphore.wait(timeout: .now() + 25)
-
-            return resultDict
+            return result
         }
 
         context.setObject(nativeFetchBlock, forKeyedSubscript: "__yomi_nativeFetch" as NSString)
 
-        // Inject standard JavaScript `fetch` polyfill leveraging native bridge
+        // Inject standard JavaScript `fetch` polyfill leveraging native bridge.
         let polyfillScript = """
         function fetch(url, options = {}) {
             return new Promise((resolve, reject) => {
@@ -129,8 +85,9 @@ public enum NetworkBridge {
                 resolve({
                     status: resp.status,
                     ok: resp.status >= 200 && resp.status < 300,
+                    url: resp.url || url,
                     headers: {
-                        get: (key) => resp.headers[key.toLowerCase()] || null
+                        get: (key) => resp.headers && resp.headers[key.toLowerCase()] || null
                     },
                     text: () => Promise.resolve(resp.body),
                     json: () => {
@@ -145,5 +102,75 @@ public enum NetworkBridge {
         }
         """
         context.evaluateScript(polyfillScript)
+    }
+
+    private static func normalizeURLString(_ value: String) -> String {
+        var normalized = value
+        if normalized.contains("mangakakalot") {
+            normalized = normalized
+                .replacingOccurrences(of: "://www.mangakakalot.com", with: "://www.mangakakalot.gg")
+                .replacingOccurrences(of: "://mangakakalot.com", with: "://www.mangakakalot.gg")
+                .replacingOccurrences(of: "://mangakakalot.gg", with: "://www.mangakakalot.gg")
+        }
+        return normalized
+    }
+
+    private static func performURLSessionFetch(_ request: URLRequest) -> [String: Any] {
+        let semaphore = DispatchSemaphore(value: 0)
+        let box = LockedFetchResult()
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            defer { semaphore.signal() }
+
+            if let error {
+                box.set(["status": 0, "error": error.localizedDescription])
+                return
+            }
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                box.set(["status": 0, "error": "Invalid HTTP response"])
+                return
+            }
+
+            var headers: [String: String] = [:]
+            for (key, value) in httpResponse.allHeaderFields {
+                headers["\(key)".lowercased()] = "\(value)"
+            }
+
+            let body = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            let isCloudflare = CloudflareResponseDetector.isChallenge(
+                statusCode: httpResponse.statusCode,
+                headers: headers,
+                body: body
+            )
+
+            box.set([
+                "status": httpResponse.statusCode,
+                "headers": headers,
+                "body": body,
+                "url": httpResponse.url?.absoluteString ?? request.url?.absoluteString ?? "",
+                "isCloudflare": isCloudflare
+            ])
+        }.resume()
+
+        _ = semaphore.wait(timeout: .now() + 25)
+        return box.value ?? ["status": 0, "error": "Network request timed out"]
+    }
+}
+
+private final class LockedFetchResult: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [String: Any]?
+
+    func set(_ value: [String: Any]) {
+        lock.lock()
+        stored = value
+        lock.unlock()
+    }
+
+    var value: [String: Any]? {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored
     }
 }

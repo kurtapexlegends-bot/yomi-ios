@@ -2,14 +2,16 @@ import SwiftUI
 import YomiCore
 import YomiDatabase
 
-/// Displays reading history grouped chronologically with quick resume actions.
+/// Chronological reading history with resume, filtering, and cleanup actions.
 public struct HistoryView: View {
     @State private var historyItems: [HistoryItem] = []
     @State private var isLoading: Bool = false
+    @State private var searchQuery: String = ""
+    @State private var filter: HistoryFilter = .all
     @State private var showingClearConfirmation: Bool = false
-    @State private var activeChapterForReading: Chapter?
-    @State private var activeMangaForReading: Manga?
-    @State private var selectedMangaForDetail: Manga?
+    @State private var readerRequest: ReaderRequest?
+    @State private var detailManga: Manga?
+    @State private var errorMessage: String?
 
     private let historyRepo = HistoryRepository()
     private let mangaRepo = MangaRepository()
@@ -18,310 +20,413 @@ public struct HistoryView: View {
 
     public init() {}
 
-    public var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // Incognito Mode Banner
-                if privacyManager.isIncognitoMode {
-                    HStack(spacing: 8) {
-                        Image(systemName: "eye.slash.fill")
-                            .font(.caption)
-                        Text("Incognito Mode Active — History is not recorded")
-                            .font(.caption.bold())
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-                    .background(Color.purple.opacity(0.85))
-                    .foregroundStyle(.white)
-                }
+    private var filteredHistory: [HistoryItem] {
+        var items = historyItems
 
-                if isLoading && historyItems.isEmpty {
-                    Spacer()
-                    ProgressView("Loading history...")
-                        .foregroundStyle(YomiTheme.textSecondary)
-                    Spacer()
-                } else if historyItems.isEmpty {
-                    EmptyHistoryView()
-                } else {
-                    List {
-                        let sections = groupHistoryByDate(historyItems)
-                        ForEach(sections, id: \.title) { section in
-                            Section(section.title) {
-                                ForEach(section.items) { item in
-                                    HistoryRowView(
-                                        item: item,
-                                        onResume: {
-                                            resumeReading(for: item)
-                                        },
-                                        onViewManga: {
-                                            openMangaDetail(for: item)
-                                        }
-                                    )
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                        Button(role: .destructive) {
-                                            deleteItem(item)
-                                        } label: {
-                                            Label("Delete", systemImage: "trash")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    #if os(iOS)
-                    .listStyle(.insetGrouped)
-                    #endif
-                    .refreshable {
-                        await reloadHistory()
-                    }
-                }
-            }
-            .navigationTitle("History")
-            .toolbar {
-                if !historyItems.isEmpty {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button(role: .destructive) {
-                            showingClearConfirmation = true
-                        } label: {
-                            Image(systemName: "trash")
-                                .foregroundStyle(Color.red)
-                        }
-                    }
-                }
-            }
-            .confirmationDialog(
-                "Clear History",
-                isPresented: $showingClearConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("Clear All Reading History", role: .destructive) {
-                    clearAll()
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This action will remove all reading history records. Your library manga and bookmarks will not be affected.")
-            }
-            .onAppear {
-                loadHistory()
-            }
-            .navigationDestination(item: $selectedMangaForDetail) { manga in
-                MangaDetailView(manga: manga)
-            }
-            #if os(iOS)
-            .fullScreenCover(item: $activeChapterForReading) { chapter in
-                if let manga = activeMangaForReading {
-                    ReaderContainerView(manga: manga, chapter: chapter)
-                }
-            }
-            #else
-            .sheet(item: $activeChapterForReading) { chapter in
-                if let manga = activeMangaForReading {
-                    ReaderContainerView(manga: manga, chapter: chapter)
-                }
-            }
-            #endif
-            .onChange(of: activeChapterForReading) { oldVal, newVal in
-                if oldVal != nil && newVal == nil {
-                    loadHistory()
-                }
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty {
+            items = items.filter {
+                $0.mangaTitle.localizedCaseInsensitiveContains(query)
+                    || $0.chapterName.localizedCaseInsensitiveContains(query)
             }
         }
-    }
 
-    private func loadHistory() {
-        isLoading = true
-        Task {
-            historyItems = (try? await historyRepo.getHistory(limit: 100)) ?? []
-            isLoading = false
+        switch filter {
+        case .all:
+            break
+        case .inProgress:
+            items = items.filter { !$0.isRead }
+        case .completed:
+            items = items.filter(\.isRead)
         }
+
+        return items
     }
 
-    private func reloadHistory() async {
-        historyItems = (try? await historyRepo.getHistory(limit: 100)) ?? []
-    }
-
-    private func deleteItem(_ item: HistoryItem) {
-        Task { @MainActor in
-            try? await historyRepo.deleteHistoryItem(id: item.id)
-            if let idx = historyItems.firstIndex(where: { $0.id == item.id }) {
-                historyItems.remove(at: idx)
-            }
-        }
-    }
-
-    private func clearAll() {
-        Task { @MainActor in
-            try? await historyRepo.clearAllHistory()
-            historyItems.removeAll()
-        }
-    }
-
-    private func resumeReading(for item: HistoryItem) {
-        Task { @MainActor in
-            if let manga = try? await mangaRepo.getManga(id: item.mangaId),
-               let chapter = try? await chapterRepo.getChapter(id: item.chapterId) {
-                self.activeMangaForReading = manga
-                self.activeChapterForReading = chapter
-            }
-        }
-    }
-
-    private func openMangaDetail(for item: HistoryItem) {
-        Task { @MainActor in
-            if let manga = try? await mangaRepo.getManga(id: item.mangaId) {
-                self.selectedMangaForDetail = manga
-            }
-        }
-    }
-
-    private func groupHistoryByDate(_ items: [HistoryItem]) -> [HistoryDateSection] {
+    private var sections: [HistoryDateSection] {
         let calendar = Calendar.current
         var today: [HistoryItem] = []
         var yesterday: [HistoryItem] = []
-        var thisWeek: [HistoryItem] = []
+        var week: [HistoryItem] = []
         var older: [HistoryItem] = []
 
-        let now = Date()
-        for item in items {
-            let itemDate = item.readAt
-            if calendar.isDateInToday(itemDate) {
+        for item in filteredHistory {
+            if calendar.isDateInToday(item.readAt) {
                 today.append(item)
-            } else if calendar.isDateInYesterday(itemDate) {
+            } else if calendar.isDateInYesterday(item.readAt) {
                 yesterday.append(item)
-            } else if let daysAgo = calendar.dateComponents([.day], from: itemDate, to: now).day, daysAgo <= 7 {
-                thisWeek.append(item)
+            } else if let days = calendar.dateComponents([.day], from: item.readAt, to: Date()).day, days <= 7 {
+                week.append(item)
             } else {
                 older.append(item)
             }
         }
 
-        var sections: [HistoryDateSection] = []
-        if !today.isEmpty { sections.append(HistoryDateSection(title: "Today", items: today)) }
-        if !yesterday.isEmpty { sections.append(HistoryDateSection(title: "Yesterday", items: yesterday)) }
-        if !thisWeek.isEmpty { sections.append(HistoryDateSection(title: "Earlier This Week", items: thisWeek)) }
-        if !older.isEmpty { sections.append(HistoryDateSection(title: "Older", items: older)) }
-        return sections
+        var result: [HistoryDateSection] = []
+        if !today.isEmpty { result.append(HistoryDateSection(title: "Today", items: today)) }
+        if !yesterday.isEmpty { result.append(HistoryDateSection(title: "Yesterday", items: yesterday)) }
+        if !week.isEmpty { result.append(HistoryDateSection(title: "Earlier This Week", items: week)) }
+        if !older.isEmpty { result.append(HistoryDateSection(title: "Older", items: older)) }
+        return result
     }
-}
 
-// MARK: - Subviews & Models
+    private var uniqueTitles: Int {
+        Set(historyItems.map(\.mangaId)).count
+    }
 
-struct HistoryDateSection {
-    let title: String
-    let items: [HistoryItem]
-}
+    private var thisWeekCount: Int {
+        let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? .distantPast
+        return historyItems.filter { $0.readAt >= cutoff }.count
+    }
 
-struct HistoryRowView: View {
-    let item: HistoryItem
-    let onResume: () -> Void
-    let onViewManga: () -> Void
+    private var inProgressCount: Int {
+        historyItems.filter { !$0.isRead }.count
+    }
 
-    var body: some View {
-        HStack(spacing: 12) {
-            // Manga Cover Thumbnail
-            AsyncImage(url: URL(string: item.effectiveThumbnailUrl ?? "")) { phase in
-                switch phase {
-                case .success(let img):
-                    img.resizable().aspectRatio(contentMode: .fill)
-                default:
-                    Rectangle()
-                        .fill(YomiTheme.surface)
-                        .overlay(Image(systemName: "book.closed").font(.caption).foregroundStyle(YomiTheme.textSecondary))
+    public var body: some View {
+        NavigationStack {
+            ZStack {
+                YomiBackground()
+
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 18) {
+                        header
+
+                        if privacyManager.isIncognitoMode {
+                            incognitoBanner
+                        }
+
+                        summaryCard
+                        controls
+
+                        if isLoading && historyItems.isEmpty {
+                            ProgressView()
+                                .tint(YomiTheme.accent)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 40)
+                        } else if filteredHistory.isEmpty {
+                            emptyState
+                        } else {
+                            ForEach(sections, id: \.title) { section in
+                                historySection(section)
+                            }
+                        }
+
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(YomiFont.caption)
+                                .foregroundStyle(YomiTheme.danger)
+                        }
+                    }
+                    .padding(.horizontal, YomiTheme.contentPadding)
+                    .padding(.top, 14)
+                    .padding(.bottom, 30)
+                }
+                .scrollIndicators(.hidden)
+                .refreshable { await loadHistory(showsSpinner: false) }
+            }
+            .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(item: $detailManga) { manga in
+                MangaDetailView(manga: manga)
+            }
+            .fullScreenCover(item: $readerRequest, onDismiss: {
+                Task { await loadHistory(showsSpinner: false) }
+            }) { request in
+                ReaderContainerView(manga: request.manga, chapter: request.chapter)
+            }
+            .confirmationDialog(
+                "Clear all reading history?",
+                isPresented: $showingClearConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Clear History", role: .destructive) { clearHistory() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This removes history entries only. Reading progress and downloaded chapters are kept.")
+            }
+            .task { await loadHistory() }
+        }
+    }
+
+    // MARK: - Header
+
+    private var header: some View {
+        YomiScreenHeader(title: "History", subtitle: headerSubtitle) {
+            if !historyItems.isEmpty {
+                Menu {
+                    Button {
+                        showingClearConfirmation = true
+                    } label: {
+                        Label("Clear All History", systemImage: "trash")
+                    }
+                    Button {
+                        Task { await loadHistory() }
+                    } label: {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .buttonStyle(YomiIconButtonStyle())
+            }
+        }
+    }
+
+    private var headerSubtitle: String {
+        if historyItems.isEmpty { return "Your reading trail, kept locally" }
+        return "\(historyItems.count) chapters · \(uniqueTitles) titles"
+    }
+
+    private var incognitoBanner: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "eye.slash.fill")
+                .font(.system(size: 11, weight: .semibold))
+            Text("Incognito is on · new reading sessions are not added to history")
+                .font(YomiFont.caption.weight(.semibold))
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(YomiTheme.accentStrong)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 10)
+        .background(YomiTheme.accentSoft)
+        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+    }
+
+    // MARK: - Summary
+
+    private var summaryCard: some View {
+        YomiCard(padding: 16) {
+            HStack(spacing: 12) {
+                summaryStat(value: "\(thisWeekCount)", label: "This week", tint: YomiTheme.accentStrong)
+                Divider().frame(height: 32).overlay(YomiTheme.border)
+                summaryStat(value: "\(inProgressCount)", label: "In progress", tint: YomiTheme.warning)
+                Divider().frame(height: 32).overlay(YomiTheme.border)
+                summaryStat(value: "\(uniqueTitles)", label: "Titles", tint: YomiTheme.unreadBadge)
+            }
+        }
+    }
+
+    private func summaryStat(value: String, label: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value)
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundStyle(tint)
+            Text(label)
+                .font(YomiFont.micro)
+                .foregroundStyle(YomiTheme.textTertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Controls
+
+    private var controls: some View {
+        VStack(spacing: 10) {
+            YomiSearchField(text: $searchQuery, placeholder: "Search history")
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(HistoryFilter.allCases, id: \.self) { option in
+                        YomiFilterChip(
+                            title: option.title,
+                            isSelected: filter == option,
+                            icon: option.icon
+                        ) {
+                            withAnimation(.easeOut(duration: 0.18)) { filter = option }
+                        }
+                    }
                 }
             }
-            .frame(width: 44, height: 62)
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .clipped()
-            .onTapGesture {
-                onViewManga()
+        }
+    }
+
+    // MARK: - Sections
+
+    private func historySection(_ section: HistoryDateSection) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(section.title)
+                    .font(YomiFont.sectionTitle)
+                    .foregroundStyle(YomiTheme.textPrimary)
+                Text("\(section.items.count)")
+                    .font(YomiFont.micro)
+                    .foregroundStyle(YomiTheme.textTertiary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(YomiTheme.surface)
+                    .clipShape(Capsule())
+                Spacer()
             }
 
-            // Info
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(spacing: 9) {
+                ForEach(section.items) { item in
+                    historyRow(item)
+                }
+            }
+        }
+    }
+
+    private func historyRow(_ item: HistoryItem) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                openDetail(for: item)
+            } label: {
+                YomiCoverImage(
+                    urlString: item.effectiveThumbnailUrl,
+                    title: item.mangaTitle,
+                    cornerRadius: 10
+                )
+                .frame(width: 54, height: 78)
+                .clipped()
+            }
+            .buttonStyle(.plain)
+
+            VStack(alignment: .leading, spacing: 5) {
                 Text(item.mangaTitle)
-                    .font(.subheadline.bold())
+                    .font(YomiFont.cardTitle)
                     .foregroundStyle(YomiTheme.textPrimary)
                     .lineLimit(1)
 
                 Text(item.displayChapterTitle)
-                    .font(.caption)
+                    .font(YomiFont.caption)
                     .foregroundStyle(YomiTheme.textSecondary)
                     .lineLimit(1)
 
                 HStack(spacing: 6) {
-                    Text(item.isRead ? "Completed" : "Page \(item.lastPageRead + 1)")
-                        .font(.caption2.bold())
-                        .foregroundStyle(item.isRead ? YomiTheme.downloadBadge : YomiTheme.accent)
-
-                    Text("•")
-                        .font(.caption2)
-                        .foregroundStyle(YomiTheme.textSecondary)
-
-                    Text(formatTime(item.readAt))
-                        .font(.caption2)
-                        .foregroundStyle(YomiTheme.textSecondary)
+                    YomiTag(
+                        item.isRead ? "COMPLETED" : "PAGE \(item.lastPageRead + 1)",
+                        tint: item.isRead ? YomiTheme.success : YomiTheme.accentStrong
+                    )
+                    Text(relativeTime(item.readAt))
+                        .font(YomiFont.micro)
+                        .foregroundStyle(YomiTheme.textTertiary)
                 }
             }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                onResume()
-            }
 
-            Spacer()
+            Spacer(minLength: 2)
 
-            // Quick Resume Button
-            Button(action: onResume) {
-                Image(systemName: "play.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(YomiTheme.accent)
+            Button {
+                resume(item)
+            } label: {
+                Image(systemName: item.isRead ? "arrow.counterclockwise" : "play.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 34, height: 34)
+                    .background(YomiTheme.accent)
+                    .clipShape(Circle())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
         }
-        .padding(.vertical, 4)
+        .padding(11)
+        .background(YomiTheme.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous)
+                .stroke(YomiTheme.border, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous))
         .contextMenu {
             Button {
-                onResume()
+                resume(item)
             } label: {
-                Label("Resume Reading", systemImage: "play.fill")
+                Label(item.isRead ? "Read Again" : "Resume Reading", systemImage: "book.fill")
             }
-
             Button {
-                onViewManga()
+                openDetail(for: item)
             } label: {
-                Label("View Manga Details", systemImage: "info.circle")
+                Label("View Details", systemImage: "info.circle")
+            }
+            Button(role: .destructive) {
+                deleteHistory(item)
+            } label: {
+                Label("Remove from History", systemImage: "trash")
             }
         }
     }
 
-    private func formatTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        if Calendar.current.isDateInToday(date) {
-            formatter.dateStyle = .none
-            formatter.timeStyle = .short
-        } else {
-            formatter.dateStyle = .short
-            formatter.timeStyle = .none
+    private var emptyState: some View {
+        YomiEmptyState(
+            icon: "clock.badge.xmark",
+            title: searchQuery.isEmpty ? "No Reading History" : "No Matches",
+            message: searchQuery.isEmpty
+                ? "Chapters you read will appear here so you can pick up instantly."
+                : "Try a different title or clear the active history filter.",
+            actionTitle: searchQuery.isEmpty ? nil : "Clear Search",
+            action: searchQuery.isEmpty ? nil : { searchQuery = ""; filter = .all }
+        )
+    }
+
+    // MARK: - Data
+
+    private func loadHistory(showsSpinner: Bool = true) async {
+        if showsSpinner { isLoading = true }
+        do {
+            historyItems = try await historyRepo.getHistory(limit: 400)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
         }
-        return formatter.string(from: date)
+        isLoading = false
+    }
+
+    private func resume(_ item: HistoryItem) {
+        Task {
+            guard let manga = try? await mangaRepo.getManga(id: item.mangaId),
+                  let chapter = try? await chapterRepo.getChapter(id: item.chapterId) else { return }
+            await MainActor.run {
+                readerRequest = ReaderRequest(manga: manga, chapter: chapter)
+            }
+        }
+    }
+
+    private func openDetail(for item: HistoryItem) {
+        Task {
+            guard let manga = try? await mangaRepo.getManga(id: item.mangaId) else { return }
+            await MainActor.run {
+                detailManga = manga
+            }
+        }
+    }
+
+    private func deleteHistory(_ item: HistoryItem) {
+        Task {
+            try? await historyRepo.deleteHistoryItem(id: item.id)
+            await loadHistory(showsSpinner: false)
+        }
+    }
+
+    private func clearHistory() {
+        Task {
+            try? await historyRepo.clearAllHistory()
+            await loadHistory(showsSpinner: false)
+        }
+    }
+
+    private func relativeTime(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 }
 
-struct EmptyHistoryView: View {
-    var body: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            Image(systemName: "clock.badge.xmark")
-                .font(.system(size: 48))
-                .foregroundStyle(YomiTheme.textSecondary)
-            Text("No Reading History")
-                .font(.headline)
-                .foregroundStyle(YomiTheme.textPrimary)
-            Text("Chapters you read will appear here so you can easily resume where you left off.")
-                .font(.subheadline)
-                .foregroundStyle(YomiTheme.textSecondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-            Spacer()
+// MARK: - Models
+
+private struct HistoryDateSection {
+    let title: String
+    let items: [HistoryItem]
+}
+
+enum HistoryFilter: String, CaseIterable {
+    case all = "All"
+    case inProgress = "In Progress"
+    case completed = "Completed"
+
+    var title: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .all: return "clock.fill"
+        case .inProgress: return "book.fill"
+        case .completed: return "checkmark.circle.fill"
         }
     }
 }

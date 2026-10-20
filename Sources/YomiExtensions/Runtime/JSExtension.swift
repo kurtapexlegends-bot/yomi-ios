@@ -259,15 +259,35 @@ public final class JSExtension: SourceProtocol, @unchecked Sendable {
         var request = URLRequest(url: url)
         request.setValue(NetworkBridge.defaultUserAgent, forHTTPHeaderField: "User-Agent")
         request.setValue(manifest.baseUrl, forHTTPHeaderField: "Referer")
+        request.setValue("image/avif,image/webp,image/apng,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
         for (k, v) in page.headers {
             request.setValue(v, forHTTPHeaderField: k)
         }
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode >= 400 {
-            throw YomiError.httpError(statusCode: httpResponse.statusCode, body: nil)
+        if let cookies = HTTPCookieStorage.shared.cookies(for: url), !cookies.isEmpty {
+            for (key, value) in HTTPCookie.requestHeaderFields(with: cookies) {
+                request.setValue(value, forHTTPHeaderField: key)
+            }
         }
-        return data
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode >= 400 {
+                if CloudflareSolver.shared.shouldUseWebViewFetch(for: url),
+                   let data = await WebViewFetchService.shared.fetchData(request) {
+                    return data
+                }
+                throw YomiError.httpError(statusCode: httpResponse.statusCode, body: nil)
+            }
+            return data
+        } catch {
+            // Cloudflare also protects some image CDNs. Retry through the verified WebKit session
+            // before surfacing an HTTP/network error to the reader.
+            if CloudflareSolver.shared.shouldUseWebViewFetch(for: url),
+               let data = await WebViewFetchService.shared.fetchData(request) {
+                return data
+            }
+            throw error
+        }
     }
 
     // MARK: - Helpers

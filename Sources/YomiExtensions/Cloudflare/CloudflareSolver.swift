@@ -28,6 +28,12 @@ public final class CloudflareSolver: NSObject, WKNavigationDelegate, @unchecked 
     private var pollTimer: Task<Void, Never>?
     private var challengeHost: String = ""
 
+    /// Hosts whose `cf_clearance` cookie was issued by this WebKit session. Requests for these
+    /// hosts may be replayed through `WebViewFetchService` when URLSession is still blocked by
+    /// Cloudflare's TLS/fingerprint checks.
+    private let verifiedHostsLock = NSLock()
+    private var verifiedHosts: Set<String> = []
+
     private override init() {
         super.init()
     }
@@ -73,17 +79,43 @@ public final class CloudflareSolver: NSObject, WKNavigationDelegate, @unchecked 
     /// Returns the scheme://host origin of a URL, discarding path/query.
     public static func originURL(from url: URL) -> URL? {
         guard let scheme = url.scheme, let rawHost = url.host else { return nil }
-        var host = rawHost.lowercased()
-        // MangaKakalot's legacy .com domain is dead; always solve on the live .gg host.
-        if host.contains("mangakakalot") {
-            host = "www.mangakakalot.gg"
-        }
         var components = URLComponents()
         components.scheme = scheme
-        components.host = host
+        components.host = CloudflareHostPolicy.canonicalHost(rawHost)
         components.port = url.port
         components.path = "/"
         return components.url
+    }
+
+    /// Marks a host as having received a valid clearance cookie. Safe to call from background
+    /// extension queues; the set is guarded by a lock because WebKit callbacks are main-actor.
+    public func markHostVerified(_ host: String) {
+        let normalized = CloudflareHostPolicy.normalizedHost(host)
+        guard !normalized.isEmpty else { return }
+        verifiedHostsLock.lock()
+        verifiedHosts.insert(normalized)
+        verifiedHostsLock.unlock()
+    }
+
+    /// True when requests for this URL should be attempted through the WebKit transport.
+    public func shouldUseWebViewFetch(for url: URL) -> Bool {
+        guard let host = url.host else { return false }
+        return isHostVerified(host)
+    }
+
+    public func isHostVerified(_ host: String) -> Bool {
+        let normalized = CloudflareHostPolicy.normalizedHost(host)
+        guard !normalized.isEmpty else { return false }
+        verifiedHostsLock.lock()
+        defer { verifiedHostsLock.unlock() }
+        return verifiedHosts.contains { CloudflareHostPolicy.matches(host: normalized, domain: $0) }
+    }
+
+    /// Used by tests and when the user explicitly clears web data.
+    public func clearVerifiedHosts() {
+        verifiedHostsLock.lock()
+        verifiedHosts.removeAll()
+        verifiedHostsLock.unlock()
     }
 
     // MARK: - WKNavigationDelegate
@@ -138,16 +170,27 @@ public final class CloudflareSolver: NSObject, WKNavigationDelegate, @unchecked 
     /// that the challenge was solved.
     static func isClearanceCookie(_ cookie: HTTPCookie, forHost host: String) -> Bool {
         guard cookie.name == "cf_clearance" else { return false }
-        let cookieDomain = cookie.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        let cookieDomain = CloudflareHostPolicy.normalizedHost(cookie.domain)
         guard !cookieDomain.isEmpty else { return true }
         if host.isEmpty { return true }
-        return host == cookieDomain || host.hasSuffix("." + cookieDomain) || cookieDomain.hasSuffix("." + host)
+        return CloudflareHostPolicy.matches(host: host, domain: cookieDomain)
     }
 
     private func syncCookiesAndComplete(cookies: [HTTPCookie], success: Bool) {
+        let clearanceCookies = cookies.filter { $0.name == "cf_clearance" }
         for cookie in cookies {
             HTTPCookieStorage.shared.setCookie(cookie)
         }
+
+        if success {
+            markHostVerified(challengeHost)
+            // The cookie domain is the most reliable scope for replaying clearance. Mark it as
+            // well as the exact challenge host so subdomains (www., m., etc.) are covered.
+            for cookie in clearanceCookies {
+                markHostVerified(cookie.domain)
+            }
+        }
+
         complete(success: success)
     }
 

@@ -4,6 +4,8 @@ import YomiDatabase
 import YomiDownload
 import YomiExtensions
 
+/// Manga detail rebuilt around a clear reading path: progress, resume, chapter filters,
+/// bookmarking, downloads, categories, and tracker links.
 public struct MangaDetailView: View {
     @State public var manga: Manga
     @State private var chapters: [Chapter] = []
@@ -12,6 +14,14 @@ public struct MangaDetailView: View {
     @State private var activeChapterForReading: Chapter?
     @State private var isShowingTrackingSheet: Bool = false
     @State private var isShowingCategorySheet: Bool = false
+    @State private var isSynopsisExpanded: Bool = false
+    @State private var chapterFilter: MangaChapterFilter = .all
+    @State private var chapterSort: MangaChapterSort = .newest
+    @State private var chapterSearch: String = ""
+    @State private var downloadedChapterIds: Set<Int64> = []
+    @State private var errorMessage: String?
+    @State private var isShowingMarkAllConfirmation: Bool = false
+    @State private var isSourceAvailable: Bool = true
 
     private let mangaRepo = MangaRepository()
     private let chapterRepo = ChapterRepository()
@@ -23,365 +33,734 @@ public struct MangaDetailView: View {
         self._isInLibrary = State(initialValue: manga.inLibrary)
     }
 
-    public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                // Header Banner
-                MangaHeaderBanner(manga: manga)
+    private var visibleChapters: [Chapter] {
+        var items = chapters
 
-                // Action Buttons Row
-                HStack(spacing: 12) {
-                    Button {
-                        toggleLibraryStatus()
-                    } label: {
-                        Label(isInLibrary ? "In Library" : "Add to Library", systemImage: isInLibrary ? "heart.fill" : "heart")
-                            .font(.subheadline.bold())
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(isInLibrary ? YomiTheme.accent : YomiTheme.surface)
-                            .foregroundStyle(isInLibrary ? .white : .primary)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-
-                    if let firstUnread = chapters.first(where: { !$0.read }) ?? chapters.first {
-                        Button {
-                            activeChapterForReading = firstUnread
-                        } label: {
-                            Label("Resume", systemImage: "play.fill")
-                                .font(.subheadline.bold())
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 10)
-                                .background(Color.blue)
-                                .foregroundStyle(.white)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                        }
-                    }
-
-                    Button {
-                        downloadAllUnread()
-                    } label: {
-                        Image(systemName: "arrow.down.circle")
-                            .font(.title3)
-                            .frame(width: 44, height: 44)
-                            .background(YomiTheme.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-                }
-                .padding(.horizontal, 16)
-
-                // Synopsis & Genres
-                if let desc = manga.description, !desc.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("About")
-                            .font(.headline)
-                        Text(desc)
-                            .font(.subheadline)
-                            .foregroundStyle(YomiTheme.textSecondary)
-                            .lineLimit(4)
-
-                        if !manga.genres.isEmpty {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 6) {
-                                    ForEach(manga.genres, id: \.self) { genre in
-                                        Text(genre)
-                                            .font(.caption2.bold())
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
-                                            .background(YomiTheme.surface)
-                                            .clipShape(Capsule())
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                }
-
-                // Chapters Section
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text("Chapters (\(chapters.count))")
-                            .font(.title3.bold())
-                        Spacer()
-                    }
-                    .padding(.horizontal, 16)
-
-                    if isLoadingChapters {
-                        ProgressView()
-                            .frame(maxWidth: .infinity, minHeight: 100)
-                    } else {
-                        LazyVStack(spacing: 0) {
-                            ForEach(chapters, id: \.stableId) { chapter in
-                                ChapterRowView(
-                                    chapter: chapter,
-                                    isDownloaded: isChapterDownloaded(chapter),
-                                    onTap: {
-                                        activeChapterForReading = chapter
-                                    },
-                                    onToggleRead: {
-                                        toggleChapterRead(chapter)
-                                    },
-                                    onToggleBookmark: {
-                                        toggleChapterBookmark(chapter)
-                                    },
-                                    onDownload: {
-                                        downloadChapter(chapter)
-                                    }
-                                )
-                                Divider()
-                                    .padding(.leading, 16)
-                            }
-                        }
-                    }
-                }
+        switch chapterFilter {
+        case .all:
+            break
+        case .unread:
+            items = items.filter { !$0.read }
+        case .bookmarked:
+            items = items.filter(\.bookmark)
+        case .downloaded:
+            items = items.filter { chapter in
+                guard let id = chapter.id else { return false }
+                return downloadedChapterIds.contains(id)
             }
         }
+
+        let query = chapterSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty {
+            items = items.filter {
+                $0.displayTitle.localizedCaseInsensitiveContains(query)
+                    || ($0.scanlator?.localizedCaseInsensitiveContains(query) ?? false)
+            }
+        }
+
+        return items.sorted { lhs, rhs in
+            let lhsNumber = lhs.chapterNumber >= 0 ? lhs.chapterNumber : Float(lhs.sourceOrder)
+            let rhsNumber = rhs.chapterNumber >= 0 ? rhs.chapterNumber : Float(rhs.sourceOrder)
+            if lhsNumber == rhsNumber {
+                return chapterSort == .newest ? lhs.sourceOrder > rhs.sourceOrder : lhs.sourceOrder < rhs.sourceOrder
+            }
+            return chapterSort == .newest ? lhsNumber > rhsNumber : lhsNumber < rhsNumber
+        }
+    }
+
+    private var readCount: Int {
+        chapters.filter(\.read).count
+    }
+
+    private var unreadCount: Int {
+        max(0, chapters.count - readCount)
+    }
+
+    private var bookmarkCount: Int {
+        chapters.filter(\.bookmark).count
+    }
+
+    private var progressFraction: Double {
+        guard !chapters.isEmpty else { return 0 }
+        return Double(readCount) / Double(chapters.count)
+    }
+
+    private var resumeChapter: Chapter? {
+        if let inProgress = chapters.first(where: { !$0.read && $0.lastPageRead > 0 }) {
+            return inProgress
+        }
+        if let unread = chapters.first(where: { !$0.read }) {
+            return unread
+        }
+        return chapters.first
+    }
+
+    private var sourceName: String {
+        extensionManager.getSource(id: manga.sourceId)?.manifest.name ?? "Removed source"
+    }
+
+    private var resumeTitle: String {
+        guard let resumeChapter else { return "No Chapters" }
+        if resumeChapter.lastPageRead > 0 && !resumeChapter.read {
+            return "Continue Ch. \(chapterNumberText(resumeChapter))"
+        }
+        return readCount > 0 ? "Continue Reading" : "Start Reading"
+    }
+
+    public var body: some View {
+        ZStack {
+            YomiBackground()
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    heroCard
+                    actionRow
+
+                    if !isSourceAvailable {
+                        sourceUnavailableBanner
+                    }
+
+                    if let errorMessage {
+                        errorBanner(errorMessage)
+                    }
+
+                    progressCard
+
+                    if let description = manga.description, !description.isEmpty {
+                        synopsisCard(description)
+                    }
+
+                    chaptersSection
+                }
+                .padding(.horizontal, YomiTheme.contentPadding)
+                .padding(.top, 10)
+                .padding(.bottom, 34)
+            }
+            .scrollIndicators(.hidden)
+            .refreshable { await loadChapters(forceRefresh: true) }
+        }
+        .navigationTitle("")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
         #endif
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    Button {
-                        isShowingCategorySheet = true
-                    } label: {
-                        Label("Edit Categories", systemImage: "folder")
+                moreMenu
+            }
+        }
+        .task { await loadChapters() }
+        .sheet(isPresented: $isShowingCategorySheet) {
+            if let mangaId = manga.id {
+                MangaCategorySheet(mangaId: mangaId) {
+                    Task { await loadChapters(forceRefresh: false) }
+                }
+            }
+        }
+        .sheet(isPresented: $isShowingTrackingSheet) {
+            MangaTrackingSheet(manga: manga) {
+                Task { await loadChapters(forceRefresh: false) }
+            }
+        }
+        .confirmationDialog(
+            "Mark all \(chapters.count) chapters as read?",
+            isPresented: $isShowingMarkAllConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Mark All Read", role: .destructive) { markAllRead() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This changes reading flags only. Bookmarks and downloads stay intact.")
+        }
+        .fullScreenCover(item: $activeChapterForReading, onDismiss: {
+            Task { await loadChapters(forceRefresh: false) }
+        }) { chapter in
+            ReaderContainerView(manga: manga, chapter: chapter)
+        }
+    }
+
+    // MARK: - Hero
+
+    private var heroCard: some View {
+        YomiCard(padding: 16) {
+            HStack(alignment: .top, spacing: 15) {
+                YomiCoverImage(
+                    urlString: manga.effectiveThumbnailUrl,
+                    title: manga.title,
+                    cornerRadius: 12
+                )
+                .frame(width: 116, height: 166)
+                .clipped()
+                .shadow(color: .black.opacity(0.4), radius: 12, y: 6)
+
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(manga.title)
+                        .font(.system(size: 21, weight: .bold, design: .rounded))
+                        .foregroundStyle(YomiTheme.textPrimary)
+                        .lineLimit(4)
+
+                    if let author = manga.author, !author.isEmpty {
+                        Text(author)
+                            .font(YomiFont.caption)
+                            .foregroundStyle(YomiTheme.textSecondary)
+                            .lineLimit(2)
                     }
-                    Button {
-                        isShowingTrackingSheet = true
-                    } label: {
-                        Label("Tracking", systemImage: "arrow.triangle.2.circlepath")
+
+                    HStack(spacing: 6) {
+                        YomiTag(manga.status.title, tint: statusTint)
+                        if !chapters.isEmpty {
+                            YomiTag("\(chapters.count) chapters", tint: YomiTheme.accentStrong)
+                        }
+                    }
+
+                    HStack(spacing: 5) {
+                        Image(systemName: "globe")
+                            .font(.system(size: 9, weight: .semibold))
+                        Text(sourceName)
+                            .font(YomiFont.micro)
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(YomiTheme.textTertiary)
+
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private var statusTint: Color {
+        switch manga.status {
+        case .ongoing: return YomiTheme.success
+        case .completed, .publishingFinished: return YomiTheme.unreadBadge
+        case .cancelled, .licensed: return YomiTheme.danger
+        case .onHiatus: return YomiTheme.warning
+        case .unknown: return YomiTheme.textSecondary
+        }
+    }
+
+    private var actionRow: some View {
+        HStack(spacing: 9) {
+            Button {
+                guard let resumeChapter else { return }
+                activeChapterForReading = resumeChapter
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: resumeChapter?.read == true ? "arrow.counterclockwise" : "play.fill")
+                        .font(.system(size: 11, weight: .bold))
+                    Text(resumeTitle)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(YomiPrimaryButtonStyle())
+            .disabled(chapters.isEmpty)
+
+            Button {
+                toggleLibrary()
+            } label: {
+                Image(systemName: isInLibrary ? "heart.fill" : "heart")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(isInLibrary ? YomiTheme.accentStrong : YomiTheme.textSecondary)
+                    .frame(width: 44, height: 44)
+                    .background(isInLibrary ? YomiTheme.accentSoft : YomiTheme.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            .stroke(isInLibrary ? YomiTheme.accent.opacity(0.4) : YomiTheme.border, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isInLibrary ? "Remove from library" : "Add to library")
+
+            Menu {
+                Button {
+                    downloadAllUnread()
+                } label: {
+                    Label("Download \(unreadCount) Unread", systemImage: "arrow.down.circle")
+                }
+                Button {
+                    downloadAllChapters()
+                } label: {
+                    Label("Download All", systemImage: "square.and.arrow.down")
+                }
+            } label: {
+                Image(systemName: "arrow.down.circle")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(YomiTheme.textSecondary)
+                    .frame(width: 44, height: 44)
+                    .background(YomiTheme.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            .stroke(YomiTheme.border, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(chapters.isEmpty)
+        }
+    }
+
+    private var sourceUnavailableBanner: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(YomiTheme.warning)
+            Text("This source is not installed. Cached chapters and downloads remain readable.")
+                .font(YomiFont.caption)
+                .foregroundStyle(YomiTheme.textSecondary)
+                .lineSpacing(2)
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(YomiTheme.warning.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func errorBanner(_ message: String) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: "wifi.exclamationmark")
+                .foregroundStyle(YomiTheme.warning)
+            Text(message)
+                .font(YomiFont.caption)
+                .foregroundStyle(YomiTheme.textSecondary)
+                .lineLimit(3)
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(YomiTheme.warning.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    // MARK: - Progress
+
+    private var progressCard: some View {
+        YomiCard(padding: 15) {
+            VStack(alignment: .leading, spacing: 11) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Reading progress")
+                        .font(YomiFont.cardTitle)
+                        .foregroundStyle(YomiTheme.textPrimary)
+                    Spacer()
+                    Text("\(Int(progressFraction * 100))%")
+                        .font(YomiFont.number)
+                        .foregroundStyle(YomiTheme.accentStrong)
+                }
+
+                YomiProgressBar(value: progressFraction, tint: YomiTheme.accentStrong, height: 5)
+
+                HStack(spacing: 0) {
+                    progressStat(value: "\(readCount)", label: "Read")
+                    progressDivider
+                    progressStat(value: "\(unreadCount)", label: "Unread")
+                    progressDivider
+                    progressStat(value: "\(bookmarkCount)", label: "Bookmarked")
+                    progressDivider
+                    progressStat(value: "\(downloadedChapterIds.count)", label: "Offline")
+                }
+            }
+        }
+    }
+
+    private func progressStat(value: String, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(value)
+                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .foregroundStyle(YomiTheme.textPrimary)
+            Text(label)
+                .font(YomiFont.micro)
+                .foregroundStyle(YomiTheme.textTertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var progressDivider: some View {
+        Rectangle()
+            .fill(YomiTheme.border)
+            .frame(width: 1, height: 26)
+            .padding(.horizontal, 8)
+    }
+
+    // MARK: - Synopsis
+
+    private func synopsisCard(_ description: String) -> some View {
+        YomiCard(padding: 15) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("About")
+                        .font(YomiFont.cardTitle)
+                        .foregroundStyle(YomiTheme.textPrimary)
+                    Spacer()
+                    if manga.lastUpdate > Date(timeIntervalSince1970: 86_400) {
+                        Text(relativeUpdate)
+                            .font(YomiFont.micro)
+                            .foregroundStyle(YomiTheme.textTertiary)
+                    }
+                }
+
+                Text(description)
+                    .font(YomiFont.body)
+                    .foregroundStyle(YomiTheme.textSecondary)
+                    .lineSpacing(3)
+                    .lineLimit(isSynopsisExpanded ? nil : 5)
+
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        isSynopsisExpanded.toggle()
                     }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Text(isSynopsisExpanded ? "Show less" : "Read more")
+                        .font(YomiFont.caption.weight(.bold))
+                        .foregroundStyle(YomiTheme.accentStrong)
                 }
-            }
-        }
-        .onAppear {
-            loadChapters()
-        }
-        #if os(iOS)
-        .fullScreenCover(item: $activeChapterForReading) { chapter in
-            ReaderContainerView(manga: manga, chapter: chapter)
-        }
-        #else
-        .sheet(item: $activeChapterForReading) { chapter in
-            ReaderContainerView(manga: manga, chapter: chapter)
-        }
-        #endif
-        .onChange(of: activeChapterForReading) { oldVal, newVal in
-            if oldVal != nil && newVal == nil {
-                if let mangaId = manga.id {
-                    Task { @MainActor in
-                        self.chapters = (try? await chapterRepo.getChapters(forMangaId: mangaId)) ?? self.chapters
+                .buttonStyle(.plain)
+
+                if !manga.genres.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(manga.genres, id: \.self) { genre in
+                                YomiTag(genre, tint: YomiTheme.accentStrong)
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    private func loadChapters() {
-        isLoadingChapters = true
+    private var relativeUpdate: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return "Updated \(formatter.localizedString(for: manga.lastUpdate, relativeTo: Date()))"
+    }
 
-        Task { @MainActor in
-            var currentManga = manga
-            if let existing = try? await mangaRepo.getManga(sourceId: currentManga.sourceId, url: currentManga.url) {
-                currentManga = existing
-                self.manga = existing
-                self.isInLibrary = existing.inLibrary
-            } else if currentManga.id == nil {
-                if let saved = try? await mangaRepo.upsert(currentManga) {
-                    currentManga = saved
-                    self.manga = saved
+    // MARK: - Chapters
+
+    private var chaptersSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            YomiSectionHeader(
+                "Chapters",
+                subtitle: "\(visibleChapters.count) of \(chapters.count)",
+                actionTitle: chapters.isEmpty ? nil : "Mark All Read",
+                action: chapters.isEmpty ? nil : { isShowingMarkAllConfirmation = true }
+            )
+
+            if !chapters.isEmpty {
+                chapterControls
+            }
+
+            if isLoadingChapters && chapters.isEmpty {
+                VStack(spacing: 8) {
+                    ForEach(0..<5, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            .fill(YomiTheme.surface)
+                            .frame(height: 58)
+                    }
+                }
+            } else if chapters.isEmpty {
+                YomiEmptyState(
+                    icon: "text.book.closed",
+                    title: "No Chapters",
+                    message: isSourceAvailable
+                        ? "This source has not returned chapters yet. Pull to refresh."
+                        : "This source was removed, so no new chapters can be fetched.",
+                    actionTitle: isSourceAvailable ? "Refresh" : nil,
+                    action: isSourceAvailable ? { Task { await loadChapters(forceRefresh: true) } } : nil
+                )
+            } else if visibleChapters.isEmpty {
+                YomiEmptyState(
+                    icon: "line.3.horizontal.decrease.circle",
+                    title: "Nothing Matches",
+                    message: "No chapters match this filter or search.",
+                    actionTitle: "Clear Filters",
+                    action: {
+                        chapterFilter = .all
+                        chapterSearch = ""
+                    }
+                )
+            } else {
+                LazyVStack(spacing: 7) {
+                    ForEach(visibleChapters, id: \.stableId) { chapter in
+                        DetailChapterRow(
+                            chapter: chapter,
+                            isDownloaded: chapter.id.map { downloadedChapterIds.contains($0) } ?? false,
+                            onTap: { activeChapterForReading = chapter },
+                            onToggleRead: { toggleChapterRead(chapter) },
+                            onToggleBookmark: { toggleChapterBookmark(chapter) },
+                            onDownload: { downloadChapter(chapter) }
+                        )
+                    }
                 }
             }
-
-            guard let mangaId = currentManga.id else {
-                self.isLoadingChapters = false
-                return
-            }
-
-            // First load from local database
-            let localChapters = (try? await chapterRepo.getChapters(forMangaId: mangaId)) ?? []
-            if !localChapters.isEmpty {
-                self.chapters = localChapters
-                self.isLoadingChapters = false
-            }
-
-            // Sync fresh from source
-            if let src = extensionManager.getSource(id: currentManga.sourceId) {
-                if let freshDetails = try? await src.getMangaDetails(manga: currentManga) {
-                    self.manga = freshDetails
-                    _ = try? await mangaRepo.upsert(freshDetails)
-                }
-                if let freshChapters = try? await src.getChapterList(manga: currentManga) {
-                    self.chapters = (try? await chapterRepo.syncChapters(freshChapters, forMangaId: mangaId)) ?? freshChapters
-                }
-            }
-            self.isLoadingChapters = false
         }
     }
 
-    private func toggleLibraryStatus() {
-        isInLibrary.toggle()
-        Task { @MainActor in
-            if manga.id == nil {
-                if let saved = try? await mangaRepo.upsert(manga) {
-                    self.manga = saved
+    private var chapterControls: some View {
+        VStack(spacing: 8) {
+            YomiSearchField(text: $chapterSearch, placeholder: "Find a chapter")
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
+                    ForEach(MangaChapterFilter.allCases, id: \.self) { option in
+                        YomiFilterChip(
+                            title: option.title,
+                            isSelected: chapterFilter == option,
+                            icon: option.icon
+                        ) {
+                            withAnimation(.easeOut(duration: 0.16)) { chapterFilter = option }
+                        }
+                    }
+
+                    Menu {
+                        ForEach(MangaChapterSort.allCases, id: \.self) { option in
+                            Button {
+                                chapterSort = option
+                            } label: {
+                                if chapterSort == option {
+                                    Label(option.title, systemImage: "checkmark")
+                                } else {
+                                    Text(option.title)
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.up.arrow.down")
+                                .font(.system(size: 10, weight: .bold))
+                            Text(chapterSort == .newest ? "Newest" : "Oldest")
+                                .font(YomiFont.caption.weight(.semibold))
+                        }
+                        .foregroundStyle(YomiTheme.textSecondary)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 7)
+                        .background(YomiTheme.surface)
+                        .overlay(Capsule().stroke(YomiTheme.border, lineWidth: 1))
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-            guard let id = manga.id else { return }
-            try? await mangaRepo.setInLibrary(mangaId: id, inLibrary: isInLibrary)
+        }
+    }
+
+    // MARK: - More menu
+
+    private var moreMenu: some View {
+        Menu {
+            Button {
+                isShowingCategorySheet = true
+            } label: {
+                Label("Categories", systemImage: "folder")
+            }
+
+            Button {
+                isShowingTrackingSheet = true
+            } label: {
+                Label("Tracking", systemImage: "arrow.triangle.2.circlepath")
+            }
+
+            Menu {
+                ForEach(MangaViewer.allCases, id: \.self) { viewer in
+                    Button {
+                        setViewer(viewer)
+                    } label: {
+                        if manga.viewer == viewer {
+                            Label(viewer.title, systemImage: "checkmark")
+                        } else {
+                            Text(viewer.title)
+                        }
+                    }
+                }
+            } label: {
+                Label("Reading Mode", systemImage: "rectangle.on.rectangle")
+            }
+
+            Divider()
+
+            Button {
+                downloadAllUnread()
+            } label: {
+                Label("Download Unread", systemImage: "arrow.down.circle")
+            }
+
+            Button {
+                isShowingMarkAllConfirmation = true
+            } label: {
+                Label("Mark All Read", systemImage: "checkmark.circle")
+            }
+
+            if isInLibrary {
+                Button(role: .destructive) {
+                    toggleLibrary()
+                } label: {
+                    Label("Remove from Library", systemImage: "heart.slash")
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(YomiTheme.textSecondary)
+        }
+    }
+
+    // MARK: - Data
+
+    private func loadChapters(forceRefresh: Bool = true) async {
+        if chapters.isEmpty { isLoadingChapters = true }
+
+        var current = manga
+        do {
+            if let existing = try await mangaRepo.getManga(sourceId: current.sourceId, url: current.url) {
+                current = existing
+                manga = existing
+                isInLibrary = existing.inLibrary
+            } else if current.id == nil {
+                let saved = try await mangaRepo.upsert(current)
+                current = saved
+                manga = saved
+                isInLibrary = saved.inLibrary
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+
+        guard let mangaId = current.id else {
+            isLoadingChapters = false
+            return
+        }
+
+        if let local = try? await chapterRepo.getChapters(forMangaId: mangaId) {
+            chapters = local
+        }
+        downloadedChapterIds = downloadManager.downloadedChapterIDs()
+        if !chapters.isEmpty { isLoadingChapters = false }
+
+        guard forceRefresh, let source = extensionManager.getSource(id: current.sourceId) else {
+            isSourceAvailable = extensionManager.getSource(id: current.sourceId) != nil
+            isLoadingChapters = false
+            return
+        }
+
+        isSourceAvailable = true
+        errorMessage = nil
+
+        do {
+            if let freshDetails = try? await source.getMangaDetails(manga: current) {
+                var merged = freshDetails
+                merged.id = current.id
+                merged.inLibrary = current.inLibrary
+                merged.viewer = current.viewer
+                merged.customThumbnailUrl = current.customThumbnailUrl
+                if let saved = try? await mangaRepo.upsert(merged) {
+                    manga = saved
+                    current = saved
+                }
+            }
+
+            if let freshChapters = try? await source.getChapterList(manga: current) {
+                let synced = try await chapterRepo.syncChapters(freshChapters, forMangaId: mangaId)
+                chapters = synced.sorted { lhs, rhs in
+                    if lhs.chapterNumber == rhs.chapterNumber {
+                        return lhs.sourceOrder < rhs.sourceOrder
+                    }
+                    return lhs.chapterNumber > rhs.chapterNumber
+                }
+            } else if chapters.isEmpty {
+                errorMessage = "The source did not return a chapter list. It may be unavailable or blocked."
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+
+        downloadedChapterIds = downloadManager.downloadedChapterIDs()
+        isLoadingChapters = false
+    }
+
+    // MARK: - Actions
+
+    private func toggleLibrary() {
+        let newValue = !isInLibrary
+        isInLibrary = newValue
+        manga.inLibrary = newValue
+
+        Task {
+            if manga.id == nil {
+                if let saved = try? await mangaRepo.upsert(manga) {
+                    manga = saved
+                }
+            }
+            guard let mangaId = manga.id else { return }
+            try? await mangaRepo.setInLibrary(mangaId: mangaId, inLibrary: newValue)
         }
     }
 
     private func toggleChapterRead(_ chapter: Chapter) {
-        guard let chId = chapter.id else { return }
+        guard let chapterId = chapter.id else { return }
         let newStatus = !chapter.read
-        Task { @MainActor in
-            try? await chapterRepo.updateProgress(chapterId: chId, lastPageRead: chapter.lastPageRead, isRead: newStatus, logHistory: false)
-            if let idx = chapters.firstIndex(where: { $0.id == chId }) {
-                chapters[idx].read = newStatus
-            }
+
+        if let index = chapters.firstIndex(where: { $0.id == chapterId }) {
+            chapters[index].read = newStatus
+        }
+
+        Task {
+            try? await chapterRepo.updateProgress(
+                chapterId: chapterId,
+                lastPageRead: chapter.lastPageRead,
+                isRead: newStatus,
+                logHistory: false
+            )
         }
     }
 
     private func toggleChapterBookmark(_ chapter: Chapter) {
-        guard let chId = chapter.id else { return }
+        guard let chapterId = chapter.id else { return }
         let newBookmark = !chapter.bookmark
-        Task { @MainActor in
-            try? await chapterRepo.setBookmark(chapterId: chId, isBookmarked: newBookmark)
-            if let idx = chapters.firstIndex(where: { $0.id == chId }) {
-                chapters[idx].bookmark = newBookmark
-            }
+
+        if let index = chapters.firstIndex(where: { $0.id == chapterId }) {
+            chapters[index].bookmark = newBookmark
+        }
+
+        Task {
+            try? await chapterRepo.setBookmark(chapterId: chapterId, isBookmarked: newBookmark)
         }
     }
 
-    private func isChapterDownloaded(_ chapter: Chapter) -> Bool {
-        guard let chId = chapter.id, let mId = manga.id else { return false }
-        return downloadManager.isChapterDownloaded(chapterId: chId, mangaId: mId)
+    private func markAllRead() {
+        guard let mangaId = manga.id else { return }
+        Task {
+            try? await chapterRepo.markAllChaptersRead(forMangaId: mangaId)
+            await loadChapters(forceRefresh: false)
+        }
+    }
+
+    private func setViewer(_ viewer: MangaViewer) {
+        manga.viewer = viewer
+        guard let mangaId = manga.id else { return }
+        Task {
+            try? await mangaRepo.updateViewer(mangaId: mangaId, viewer: viewer)
+        }
     }
 
     private func downloadChapter(_ chapter: Chapter) {
-        guard let src = extensionManager.getSource(id: manga.sourceId) else { return }
-        downloadManager.enqueue(manga: manga, chapters: [chapter], source: src)
+        guard let source = extensionManager.getSource(id: manga.sourceId) else { return }
+        downloadManager.enqueue(manga: manga, chapters: [chapter], source: source)
     }
 
     private func downloadAllUnread() {
-        guard let src = extensionManager.getSource(id: manga.sourceId) else { return }
-        let unreads = chapters.filter { !$0.read }
-        downloadManager.enqueue(manga: manga, chapters: unreads, source: src)
+        guard let source = extensionManager.getSource(id: manga.sourceId) else { return }
+        let unread = chapters.filter { !$0.read && !($0.id.map { downloadedChapterIds.contains($0) } ?? false) }
+        guard !unread.isEmpty else { return }
+        downloadManager.enqueue(manga: manga, chapters: unread, source: source)
     }
-}
 
-// MARK: - Subcomponents
-
-struct MangaHeaderBanner: View {
-    let manga: Manga
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            AsyncImage(url: URL(string: manga.effectiveThumbnailUrl ?? "")) { phase in
-                switch phase {
-                case .success(let img):
-                    img.resizable().aspectRatio(contentMode: .fill)
-                default:
-                    Rectangle().fill(YomiTheme.surface)
-                }
-            }
-            .frame(width: 110, height: 160)
-            .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium))
-            .shadow(radius: 5)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text(manga.title)
-                    .font(.title3.bold())
-                    .lineLimit(3)
-
-                if let author = manga.author, !author.isEmpty {
-                    Text(author)
-                        .font(.subheadline)
-                        .foregroundStyle(YomiTheme.textSecondary)
-                        .lineLimit(1)
-                }
-
-                HStack(spacing: 6) {
-                    Text(manga.status.title)
-                        .font(.caption.bold())
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.green.opacity(0.2))
-                        .foregroundStyle(.green)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                }
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 16)
+    private func downloadAllChapters() {
+        guard let source = extensionManager.getSource(id: manga.sourceId) else { return }
+        downloadManager.enqueue(manga: manga, chapters: chapters, source: source)
     }
-}
 
-struct ChapterRowView: View {
-    let chapter: Chapter
-    let isDownloaded: Bool
-    let onTap: () -> Void
-    let onToggleRead: () -> Void
-    let onToggleBookmark: () -> Void
-    let onDownload: () -> Void
-
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(chapter.displayTitle)
-                        .font(.subheadline.weight(chapter.read ? .regular : .semibold))
-                        .foregroundStyle(chapter.read ? YomiTheme.textSecondary : YomiTheme.textPrimary)
-                        .lineLimit(1)
-
-                    HStack(spacing: 8) {
-                        Text(chapter.dateUpload, style: .date)
-                            .font(.caption2)
-                            .foregroundStyle(YomiTheme.textSecondary)
-                        if let scan = chapter.scanlator {
-                            Text("• \(scan)")
-                                .font(.caption2)
-                                .foregroundStyle(YomiTheme.textSecondary)
-                        }
-                    }
-                }
-
-                Spacer()
-
-                if chapter.bookmark {
-                    Image(systemName: "bookmark.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-
-                if isDownloaded {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .font(.caption)
-                        .foregroundStyle(Color.green)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .contextMenu {
-            Button(action: onToggleRead) {
-                Label(chapter.read ? "Mark as Unread" : "Mark as Read", systemImage: chapter.read ? "envelope.badge" : "checkmark.circle")
-            }
-            Button(action: onToggleBookmark) {
-                Label(chapter.bookmark ? "Remove Bookmark" : "Bookmark", systemImage: "bookmark")
-            }
-            if !isDownloaded {
-                Button(action: onDownload) {
-                    Label("Download", systemImage: "arrow.down.circle")
-                }
-            }
-        }
+    private func chapterNumberText(_ chapter: Chapter) -> String {
+        guard chapter.chapterNumber >= 0 else { return "?" }
+        return chapter.chapterNumber.truncatingRemainder(dividingBy: 1) == 0
+            ? String(format: "%.0f", chapter.chapterNumber)
+            : String(format: "%.1f", chapter.chapterNumber)
     }
 }

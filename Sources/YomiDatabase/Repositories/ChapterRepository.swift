@@ -121,6 +121,56 @@ public final class ChapterRepository: Sendable {
         }
     }
 
+    /// Returns aggregate chapter progress for every title in the library.
+    public func getLibraryProgress() async throws -> [Int64: MangaChapterProgress] {
+        try await dbManager.read { db in
+            let sql = """
+                SELECT
+                    c.manga_id,
+                    COUNT(c.id) AS total,
+                    COALESCE(SUM(CASE WHEN c.read = 1 THEN 1 ELSE 0 END), 0) AS read_count,
+                    COALESCE(SUM(CASE WHEN c.bookmark = 1 THEN 1 ELSE 0 END), 0) AS bookmark_count
+                FROM chapters c
+                INNER JOIN mangas m ON m.id = c.manga_id
+                WHERE m.in_library = 1
+                GROUP BY c.manga_id
+            """
+            let rows = try Row.fetchAll(db, sql: sql)
+            var result: [Int64: MangaChapterProgress] = [:]
+            for row in rows {
+                let mangaId: Int64 = row["manga_id"]
+                result[mangaId] = MangaChapterProgress(
+                    mangaId: mangaId,
+                    totalChapters: row["total"],
+                    readChapters: row["read_count"],
+                    bookmarkedChapters: row["bookmark_count"]
+                )
+            }
+            return result
+        }
+    }
+
+    /// Marks every chapter of every library title as read.
+    public func markAllLibraryChaptersRead() async throws {
+        try await dbManager.write { db in
+            try db.execute(sql: """
+                UPDATE chapters
+                SET read = 1, last_modified_at = ?
+                WHERE manga_id IN (SELECT id FROM mangas WHERE in_library = 1)
+            """, arguments: [Date()])
+        }
+    }
+
+    /// Marks every chapter of one title as read.
+    public func markAllChaptersRead(forMangaId mangaId: Int64) async throws {
+        try await dbManager.write { db in
+            try db.execute(
+                sql: "UPDATE chapters SET read = 1, last_modified_at = ? WHERE manga_id = ?",
+                arguments: [Date(), mangaId]
+            )
+        }
+    }
+
     /// Returns recently fetched or uploaded chapters for manga in the user's library.
     public func getRecentUpdates(limit: Int = 100) async throws -> [ChapterUpdateItem] {
         try await dbManager.read { db in
@@ -169,6 +219,31 @@ public final class ChapterRepository: Sendable {
             }
         }
     }
+}
+
+/// Aggregate reading progress for one library title.
+public struct MangaChapterProgress: Identifiable, Hashable, Sendable {
+    public var id: Int64 { mangaId }
+    public let mangaId: Int64
+    public let totalChapters: Int
+    public let readChapters: Int
+    public let bookmarkedChapters: Int
+
+    public init(mangaId: Int64, totalChapters: Int, readChapters: Int, bookmarkedChapters: Int = 0) {
+        self.mangaId = mangaId
+        self.totalChapters = totalChapters
+        self.readChapters = readChapters
+        self.bookmarkedChapters = bookmarkedChapters
+    }
+
+    public var unreadChapters: Int { max(0, totalChapters - readChapters) }
+
+    public var fraction: Double {
+        guard totalChapters > 0 else { return 0 }
+        return min(1, max(0, Double(readChapters) / Double(totalChapters)))
+    }
+
+    public var isCompleted: Bool { totalChapters > 0 && unreadChapters == 0 }
 }
 
 /// Domain representation of a recently released or fetched chapter for manga in the library.

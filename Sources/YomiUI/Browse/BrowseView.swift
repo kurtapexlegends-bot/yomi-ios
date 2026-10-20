@@ -1,14 +1,19 @@
 import SwiftUI
-import WebKit
 import YomiCore
 import YomiExtensions
 import YomiDatabase
 
-public struct BrowseView: View {
-    @State private var selectedTab: Int = 0 // 0 = Sources, 1 = Extension Store
-    @State private var cloudflareSolver = CloudflareSolver.shared
+enum BrowseSegment: String, CaseIterable {
+    case sources = "Sources"
+    case extensions = "Extensions"
+}
 
-    private let extensionManager = ExtensionManager.shared
+public struct BrowseView: View {
+    @State private var selectedSegment: BrowseSegment = .sources
+    @State private var extensionManager = ExtensionManager.shared
+    @State private var isShowingSourceManagement: Bool = false
+    @State private var sourceToRemove: SourceManifest?
+    @State private var removalError: String?
 
     public init() {}
 
@@ -18,218 +23,352 @@ public struct BrowseView: View {
 
     public var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                Picker("Sources", selection: $selectedTab) {
-                    Text("Sources").tag(0)
-                    Text("Extension Store").tag(1)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+            ZStack {
+                YomiBackground()
 
-                if selectedTab == 0 {
-                    SourcesListView(sources: sources)
-                } else {
-                    ExtensionStoreView()
-                }
-            }
-            .navigationTitle("Sources")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    NavigationLink {
-                        DownloadsView()
-                    } label: {
-                        Image(systemName: "arrow.down.circle")
-                            .foregroundStyle(YomiTheme.accent)
+                VStack(spacing: 0) {
+                    header
+                    segmentControl
+
+                    if selectedSegment == .sources {
+                        SourcesCatalogView(
+                            sources: sources,
+                            onManageSources: { isShowingSourceManagement = true },
+                            onOpenStore: { selectedSegment = .extensions },
+                            onRemoveSource: { manifest in sourceToRemove = manifest }
+                        )
+                        .transition(.opacity)
+                    } else {
+                        ExtensionStoreView(embedded: true)
+                            .transition(.opacity)
                     }
                 }
             }
-            .navigationDestination(for: SourceManifest.self) { manifest in
-                if let source = extensionManager.getSource(id: manifest.id) {
-                    SourceExplorationView(source: source)
+            .toolbar(.hidden, for: .navigationBar)
+            .sheet(isPresented: $isShowingSourceManagement) {
+                SourceManagementSheet {
+                    extensionManager.reloadInstalledSources()
                 }
             }
+            .confirmationDialog(
+                "Remove \(sourceToRemove?.name ?? "source")?",
+                isPresented: Binding(
+                    get: { sourceToRemove != nil },
+                    set: { if !$0 { sourceToRemove = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Remove Source", role: .destructive) { removeSource() }
+                Button("Cancel", role: .cancel) { sourceToRemove = nil }
+            } message: {
+                Text("The extension will be uninstalled. Titles already in your library and their reading progress are kept.")
+            }
+            .alert(
+                "Could Not Remove Source",
+                isPresented: Binding(
+                    get: { removalError != nil },
+                    set: { if !$0 { removalError = nil } }
+                )
+            ) {
+                Button("OK") { removalError = nil }
+            } message: {
+                Text(removalError ?? "")
+            }
+        }
+    }
+
+    private var header: some View {
+        YomiScreenHeader(
+            title: "Browse",
+            subtitle: subtitle
+        ) {
+            Button {
+                isShowingSourceManagement = true
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+            }
+            .buttonStyle(YomiIconButtonStyle())
+        }
+        .padding(.horizontal, YomiTheme.contentPadding)
+        .padding(.top, 14)
+    }
+
+    private var subtitle: String {
+        if selectedSegment == .extensions {
+            return "Discover and manage source extensions"
+        }
+        let languages = Set(sources.map { $0.manifest.lang }).count
+        return "\(sources.count) sources · \(languages) languages"
+    }
+
+    private var segmentControl: some View {
+        YomiSegmentedControl(
+            selection: $selectedSegment,
+            items: BrowseSegment.allCases,
+            title: { $0.rawValue }
+        )
+        .padding(.horizontal, YomiTheme.contentPadding)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+    }
+
+    private func removeSource() {
+        guard let manifest = sourceToRemove else { return }
+        do {
+            try extensionManager.uninstallExtension(sourceId: manifest.id)
+            sourceToRemove = nil
+        } catch {
+            removalError = error.localizedDescription
+            sourceToRemove = nil
         }
     }
 }
 
+// MARK: - Sources list
 
-// MARK: - Sources List
-
-struct SourcesListView: View {
+private struct SourcesCatalogView: View {
     let sources: [any SourceProtocol]
+    let onManageSources: () -> Void
+    let onOpenStore: () -> Void
+    let onRemoveSource: (SourceManifest) -> Void
+
+    @State private var searchQuery: String = ""
+    @State private var sourceFilter: SourceFilter = .all
+
+    private let privacyManager = PrivacyManager.shared
+
+    private var filteredSources: [any SourceProtocol] {
+        var items = sources
+
+        switch sourceFilter {
+        case .all:
+            break
+        case .builtIn:
+            items = items.filter { isBuiltInSource($0.manifest.id) }
+        case .community:
+            items = items.filter { !isBuiltInSource($0.manifest.id) }
+        case .nsfw:
+            items = items.filter { $0.manifest.isNsfw }
+        }
+
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty {
+            items = items.filter {
+                $0.manifest.name.localizedCaseInsensitiveContains(query)
+                    || $0.manifest.baseUrl.localizedCaseInsensitiveContains(query)
+            }
+        }
+
+        return items.sorted {
+            if isBuiltInSource($0.manifest.id) != isBuiltInSource($1.manifest.id) {
+                return isBuiltInSource($0.manifest.id)
+            }
+            return $0.manifest.name.localizedCaseInsensitiveCompare($1.manifest.name) == .orderedAscending
+        }
+    }
+
+    private var builtInSources: [any SourceProtocol] {
+        filteredSources.filter { isBuiltInSource($0.manifest.id) }
+    }
+
+    private var communitySources: [any SourceProtocol] {
+        filteredSources.filter { !isBuiltInSource($0.manifest.id) }
+    }
 
     var body: some View {
-        List {
-            Section("Installed Sources (\(sources.count))") {
-                ForEach(sources, id: \.manifest.id) { source in
-                    NavigationLink(value: source.manifest) {
-                        HStack(spacing: 12) {
-                            AsyncImage(url: URL(string: source.manifest.iconUrl ?? "")) { phase in
-                                switch phase {
-                                case .success(let img):
-                                    img.resizable().aspectRatio(contentMode: .fit)
-                                default:
-                                    Image(systemName: "globe")
-                                        .font(.title2)
-                                        .foregroundStyle(YomiTheme.accent)
-                                }
-                            }
-                            .frame(width: 40, height: 40)
-                            .background(YomiTheme.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 16) {
+                searchCard
+                filters
 
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack(spacing: 6) {
-                                    Text(source.manifest.name)
-                                        .font(.headline)
-                                        .foregroundStyle(YomiTheme.textPrimary)
-
-                                    if source.manifest.id == MangaPillSource.sourceId || source.manifest.id == MangaDexSource.sourceId {
-                                        Text("Native")
-                                            .font(.caption2.bold())
-                                            .padding(.horizontal, 5)
-                                            .padding(.vertical, 1)
-                                            .background(Color.blue.opacity(0.2))
-                                            .foregroundStyle(Color.blue)
-                                            .clipShape(RoundedRectangle(cornerRadius: 4))
-                                    }
-                                }
-
-                                HStack(spacing: 6) {
-                                    Text(source.manifest.lang.uppercased())
-                                        .font(.caption2.bold())
-                                        .padding(.horizontal, 4)
-                                        .padding(.vertical, 1)
-                                        .background(YomiTheme.surface)
-                                        .clipShape(RoundedRectangle(cornerRadius: 4))
-
-                                    Text("v\(source.manifest.version)")
-                                        .font(.caption)
-                                        .foregroundStyle(YomiTheme.textSecondary)
-
-                                    if source.manifest.id == MangaPillSource.sourceId {
-                                        Text("• Full Chapters")
-                                            .font(.caption2)
-                                            .foregroundStyle(.green)
-                                    }
-                                }
-                            }
+                if filteredSources.isEmpty {
+                    YomiEmptyState(
+                        icon: "globe.badge.chevron.backward",
+                        title: searchQuery.isEmpty ? "No Sources Here" : "No Matches",
+                        message: searchQuery.isEmpty
+                            ? "Install an extension from the Extension Store to start browsing."
+                            : "Try another source name or clear the active filter.",
+                        actionTitle: searchQuery.isEmpty ? "Open Extension Store" : "Clear Search"
+                    ) {
+                        if searchQuery.isEmpty {
+                            onOpenStore()
+                        } else {
+                            searchQuery = ""
+                            sourceFilter = .all
                         }
-                        .padding(.vertical, 4)
                     }
-                }
-            }
-        }
-        #if os(iOS)
-        .listStyle(.insetGrouped)
-        #endif
-    }
-}
-
-// MARK: - Cloudflare Solver Sheet
-
-public struct CloudflareSolverSheet: View {
-    @State private var solver = CloudflareSolver.shared
-
-    public init() {}
-
-    public var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                Text(solver.statusMessage ?? "Please solve the Cloudflare verification challenge to continue.")
-                    .font(.caption)
-                    .foregroundStyle(YomiTheme.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-
-                if let url = solver.activeChallengeUrl {
-                    CloudflareWebView(url: url)
-                        .id(url.absoluteString)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    Spacer()
-                    ProgressView()
-                    Spacer()
+                    if !builtInSources.isEmpty {
+                        sourceSection(title: "Built-in", subtitle: "Always available", sources: builtInSources)
+                    }
+                    if !communitySources.isEmpty {
+                        sourceSection(
+                            title: "Community",
+                            subtitle: "\(communitySources.count) installed extensions",
+                            sources: communitySources
+                        )
+                    }
                 }
             }
-            .navigationTitle("Cloudflare Verification")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .interactiveDismissDisabled()
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        solver.cancel()
+            .padding(.horizontal, YomiTheme.contentPadding)
+            .padding(.bottom, 30)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    private var searchCard: some View {
+        NavigationLink {
+            GlobalSearchView(sources: sources)
+        } label: {
+            HStack(spacing: 13) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 42, height: 42)
+                    .background(YomiTheme.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Search every source")
+                        .font(YomiFont.cardTitle)
+                        .foregroundStyle(YomiTheme.textPrimary)
+                    Text("Find a title across all installed extensions")
+                        .font(YomiFont.caption)
+                        .foregroundStyle(YomiTheme.textSecondary)
+                }
+                Spacer()
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(YomiTheme.accentStrong)
+            }
+            .padding(14)
+            .background(YomiTheme.surface)
+            .overlay(
+                RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous)
+                    .stroke(YomiTheme.border, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var filters: some View {
+        VStack(spacing: 9) {
+            YomiSearchField(text: $searchQuery, placeholder: "Search installed sources")
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
+                    ForEach(SourceFilter.allCases, id: \.self) { option in
+                        YomiFilterChip(
+                            title: option.title,
+                            isSelected: sourceFilter == option,
+                            icon: option.icon
+                        ) {
+                            withAnimation(.easeOut(duration: 0.18)) { sourceFilter = option }
+                        }
                     }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        solver.userDidCompleteChallenge()
-                    }
-                    .bold()
+            }
+        }
+    }
+
+    private func sourceSection(title: String, subtitle: String, sources: [any SourceProtocol]) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            YomiSectionHeader(title, subtitle: subtitle)
+
+            VStack(spacing: 8) {
+                ForEach(sources.map(SourceBox.init)) { box in
+                    sourceRow(box.source)
                 }
+            }
+        }
+    }
+
+    private func sourceRow(_ source: any SourceProtocol) -> some View {
+        let manifest = source.manifest
+        return NavigationLink {
+            SourceExplorationView(source: source)
+        } label: {
+            HStack(spacing: 12) {
+                SourceIconView(name: manifest.name, iconUrl: manifest.iconUrl, size: 44)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(manifest.name)
+                            .font(YomiFont.cardTitle)
+                            .foregroundStyle(YomiTheme.textPrimary)
+                            .lineLimit(1)
+                        if manifest.isNsfw {
+                            YomiTag("18+", tint: YomiTheme.danger)
+                        }
+                        if isBuiltInSource(manifest.id) {
+                            YomiTag("NATIVE", tint: YomiTheme.success)
+                        }
+                    }
+
+                    HStack(spacing: 6) {
+                        Text(manifest.lang.uppercased())
+                            .font(YomiFont.micro)
+                            .foregroundStyle(YomiTheme.textTertiary)
+                        Text(URL(string: manifest.baseUrl)?.host ?? manifest.baseUrl)
+                            .font(YomiFont.caption)
+                            .foregroundStyle(YomiTheme.textSecondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 2)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(YomiTheme.textTertiary)
+            }
+            .padding(12)
+            .background(YomiTheme.surface)
+            .overlay(
+                RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous)
+                    .stroke(YomiTheme.border, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            if !isBuiltInSource(manifest.id) {
+                Button(role: .destructive) {
+                    onRemoveSource(manifest)
+                } label: {
+                    Label("Remove Source", systemImage: "trash")
+                }
+            }
+            Button {
+                onManageSources()
+            } label: {
+                Label("Manage Sources", systemImage: "slider.horizontal.3")
             }
         }
     }
 }
 
-#if canImport(UIKit)
-public struct CloudflareWebView: UIViewRepresentable {
-    public let url: URL
+enum SourceFilter: String, CaseIterable {
+    case all = "All"
+    case builtIn = "Built-in"
+    case community = "Community"
+    case nsfw = "18+"
 
-    public init(url: URL) {
-        self.url = url
-    }
+    var title: String { rawValue }
 
-    public final class Coordinator {
-        var loadedURL: URL?
-    }
-
-    public func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    public func makeUIView(context: Context) -> WKWebView {
-        let config = WKWebViewConfiguration()
-        config.websiteDataStore = .default()
-        config.defaultWebpagePreferences.allowsContentJavaScript = true
-        config.preferences.javaScriptCanOpenWindowsAutomatically = true
-
-        let bounds = UIScreen.main.bounds
-        let initialFrame = bounds.width > 0 ? bounds : CGRect(x: 0, y: 0, width: 390, height: 844)
-        let webView = WKWebView(frame: initialFrame, configuration: config)
-        webView.customUserAgent = NetworkBridge.defaultUserAgent
-        webView.navigationDelegate = CloudflareSolver.shared
-        CloudflareSolver.shared.activeWebView = webView
-        load(url, in: webView, coordinator: context.coordinator)
-        return webView
-    }
-
-    public func updateUIView(_ uiView: WKWebView, context: Context) {
-        if context.coordinator.loadedURL != url {
-            load(url, in: uiView, coordinator: context.coordinator)
+    var icon: String {
+        switch self {
+        case .all: return "globe"
+        case .builtIn: return "checkmark.seal.fill"
+        case .community: return "puzzlepiece.extension.fill"
+        case .nsfw: return "exclamationmark.triangle.fill"
         }
     }
+}
 
-    private func load(_ url: URL, in webView: WKWebView, coordinator: Coordinator) {
-        coordinator.loadedURL = url
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 30
-        request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
-        request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
-        CloudflareSolver.shared.activeWebView = webView
-        webView.load(request)
-    }
+private struct SourceBox: Identifiable {
+    let source: any SourceProtocol
+    var id: Int64 { source.manifest.id }
 }
-#else
-public struct CloudflareWebView: View {
-    public let url: URL
-    public init(url: URL) { self.url = url }
-    public var body: some View {
-        Text("Cloudflare Solver")
-    }
-}
-#endif

@@ -1,409 +1,588 @@
 import SwiftUI
 import YomiCore
-import YomiExtensions
 import YomiDatabase
+import YomiExtensions
 
+/// Redesigned extension store: installed sources, repositories, language variants, and search
+/// are first-class instead of being buried in a flat list.
 public struct ExtensionStoreView: View {
     @State private var repos: [ExtensionRepo] = []
     @State private var availablePackages: [RemoteExtensionPackage] = []
-    @State private var isLoading: Bool = false
-    @State private var isShowingAddRepoAlert: Bool = false
-    @State private var newRepoURL: String = ""
-    @State private var searchQuery: String = ""
-    @State private var selectedLanguage: String = "all"
-    @State private var availableLanguages: [String] = ["all"]
-    @State private var errorMessage: String?
-    @State private var isShowingErrorAlert: Bool = false
+    @State private var selectedLanguages: [String: String] = [:]
     @State private var installingPackageIds: Set<Int64> = []
-    @State private var selectedVariantLanguages: [String: String] = [:]
+    @State private var searchQuery: String = ""
+    @State private var languageFilter: String = "all"
+    @State private var storeFilter: StoreFilter = .all
+    @State private var isLoading: Bool = true
+    @State private var isRefreshing: Bool = false
+    @State private var errorMessage: String?
+    @State private var isShowingRepositories: Bool = false
+    @State private var isShowingInstalledSources: Bool = false
+
+    @State private var extensionManager = ExtensionManager.shared
 
     private let repoRepo = ExtensionRepoRepository()
     private let repoManager = RepoManager.shared
-    @State private var extensionManager = ExtensionManager.shared
+    public let embedded: Bool
 
-    public init() {}
+    public init(embedded: Bool = false) {
+        self.embedded = embedded
+    }
 
-    private var filteredPackages: [RemoteExtensionPackage] {
+    private var groups: [ExtensionCatalogGroup] {
+        ExtensionCatalog.group(availablePackages)
+    }
+
+    private var languages: [String] {
+        let values = Set(availablePackages.map { $0.lang.lowercased() })
+        return ["all"] + values.sorted()
+    }
+
+    private var filteredGroups: [ExtensionCatalogGroup] {
+        var result = groups
+
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        let isAllLangs = selectedLanguage == "all"
-        let targetLang = selectedLanguage.lowercased()
-
-        return availablePackages.filter { pkg in
-            let matchesLang = isAllLangs || pkg.lang.lowercased() == targetLang
-            if query.isEmpty {
-                return matchesLang
+        if !query.isEmpty {
+            result = result.filter { group in
+                group.name.localizedCaseInsensitiveContains(query)
+                    || group.packageKey.localizedCaseInsensitiveContains(query)
+                    || group.variants.contains { $0.baseUrl.localizedCaseInsensitiveContains(query) }
             }
-            return matchesLang && (
-                pkg.name.localizedCaseInsensitiveContains(query) ||
-                pkg.lang.localizedCaseInsensitiveContains(query) ||
-                (pkg.packageName?.localizedCaseInsensitiveContains(query) ?? false) ||
-                pkg.baseUrl.localizedCaseInsensitiveContains(query)
-            )
         }
+
+        if languageFilter != "all" {
+            result = result.filter { group in
+                group.variants.contains { $0.lang.lowercased() == languageFilter.lowercased() }
+            }
+        }
+
+        switch storeFilter {
+        case .all:
+            break
+        case .installed:
+            result = result.filter { hasAnyInstalledVariant($0) }
+        case .updates:
+            result = result.filter { isUpdateAvailable($0) }
+        case .nsfw:
+            result = result.filter(\.isNsfw)
+        }
+
+        return result
     }
 
-    /// One row per extension package, with all of its language variants collapsed underneath.
-    private var groupedPackages: [ExtensionCatalogGroup] {
-        ExtensionCatalog.group(filteredPackages)
-    }
-
-    private func variantLanguageBinding(for group: ExtensionCatalogGroup) -> Binding<String> {
-        Binding(
-            get: { selectedVariantLanguages[group.id] ?? group.defaultLanguage },
-            set: { selectedVariantLanguages[group.id] = $0 }
-        )
+    private var installedCommunityCount: Int {
+        extensionManager.installedSources.filter { !isBuiltInSource($0.manifest.id) }.count
     }
 
     public var body: some View {
-        List {
-            // Repository Sources Section
-            Section {
-                Button {
-                    isShowingAddRepoAlert = true
-                } label: {
-                    Label("Add Custom Repository", systemImage: "plus.circle")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(YomiTheme.accent)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 18) {
+                storeHeader
+                if let errorMessage {
+                    errorBanner(errorMessage)
                 }
-
-                if !repos.isEmpty {
-                    ForEach(repos) { repo in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(repo.name)
-                                    .font(.subheadline.bold())
-                                Text(repo.url)
-                                    .font(.caption2)
-                                    .foregroundStyle(YomiTheme.textSecondary)
-                                    .lineLimit(1)
-                            }
-                            Spacer()
-                            Text("\(repo.sourcesCount) sources")
-                                .font(.caption2.bold())
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(YomiTheme.surface)
-                                .clipShape(Capsule())
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button(role: .destructive) {
-                                deleteRepository(repo)
-                            } label: {
-                                Label("Remove", systemImage: "trash")
-                            }
-                        }
-                    }
-                }
-            } header: {
-                Text("Installed Repositories (\(repos.count))")
+                installedCard
+                repositoriesCard
+                controls
+                catalogSection
             }
-
-            // Language Filter Pills
-            if !availablePackages.isEmpty && availableLanguages.count > 1 {
-                Section {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(availableLanguages, id: \.self) { lang in
-                                Button {
-                                    selectedLanguage = lang
-                                } label: {
-                                    Text(lang.uppercased())
-                                        .font(.caption2.bold())
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 4)
-                                        .background(selectedLanguage == lang ? YomiTheme.accent : YomiTheme.surface)
-                                        .foregroundStyle(selectedLanguage == lang ? .white : .primary)
-                                        .clipShape(Capsule())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                } header: {
-                    Text("Filter by Language")
-                }
-            }
-
-            // Available Extensions List
-            Section {
-                if isLoading && availablePackages.isEmpty {
-                    HStack {
-                        Spacer()
-                        ProgressView("Fetching extensions catalog...")
-                            .font(.subheadline)
-                            .foregroundStyle(YomiTheme.textSecondary)
-                        Spacer()
-                    }
-                    .padding(.vertical, 16)
-                } else if availablePackages.isEmpty {
-                    VStack(spacing: 8) {
-                        Image(systemName: "puzzlepiece.extension")
-                            .font(.system(size: 36))
-                            .foregroundStyle(YomiTheme.textSecondary)
-                        Text("No Extensions Loaded")
-                            .font(.headline)
-                        Text("Enter a repository URL above or pull down to refresh extensions.")
-                            .font(.caption)
-                            .foregroundStyle(YomiTheme.textSecondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 20)
-                } else if filteredPackages.isEmpty {
-                    Text("No extensions matching '\(searchQuery)'")
-                        .font(.subheadline)
-                        .foregroundStyle(YomiTheme.textSecondary)
-                } else {
-                    ForEach(groupedPackages) { group in
-                        ExtensionGroupRow(
-                            group: group,
-                            selectedLanguage: variantLanguageBinding(for: group),
-                            isInstalled: { pkg in
-                                extensionManager.installedSources.contains(where: { $0.manifest.id == pkg.id })
-                            },
-                            isInstalling: { pkg in
-                                installingPackageIds.contains(pkg.id)
-                            },
-                            onInstall: { pkg in
-                                installPackage(pkg)
-                            }
-                        )
-                    }
-                }
-            } header: {
-                HStack {
-                    Text("Available Extensions (\(groupedPackages.count) packages)")
-                    Spacer()
-                    if isLoading {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                    }
-                }
-            }
+            .padding(.horizontal, YomiTheme.contentPadding)
+            .padding(.top, 14)
+            .padding(.bottom, 30)
         }
+        .scrollIndicators(.hidden)
+        .background(YomiBackground())
+        .navigationTitle(embedded ? "" : "Extensions")
         #if os(iOS)
-        .listStyle(.insetGrouped)
+        .navigationBarTitleDisplayMode(.inline)
         #endif
-        .searchable(text: $searchQuery, prompt: "Search extensions by name or source...")
-        .refreshable {
-            await reloadAll()
-        }
-        .alert("Add Extension Repository", isPresented: $isShowingAddRepoAlert) {
-            TextField("https://raw.githubusercontent.com/.../index.json", text: $newRepoURL)
-            Button("Add") {
-                addRepository(urlString: newRepoURL)
+        .toolbar(embedded ? .hidden : .visible, for: .navigationBar)
+        .sheet(isPresented: $isShowingRepositories) {
+            ExtensionRepositorySheet {
+                Task { await loadStore(forceRefresh: true) }
             }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Enter the HTTPS URL of the repository index. Supports Keiyoushi, Mihon, and Yomi formats.")
         }
-        .alert("Repository Error", isPresented: $isShowingErrorAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(errorMessage ?? "An unexpected error occurred while loading the repository.")
+        .sheet(isPresented: $isShowingInstalledSources) {
+            SourceManagementSheet {
+                // @Observable manager updates the store immediately.
+                extensionManager.reloadInstalledSources()
+            }
         }
-        .onAppear {
-            loadReposAndPackages()
+        .alert(
+            "Extension Store",
+            isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )
+        ) {
+            Button("OK") { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "")
+        }
+        .task { await loadStore() }
+    }
+
+    // MARK: - Header
+
+    private var storeHeader: some View {
+        YomiCard(padding: 18) {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top, spacing: 13) {
+                    Image(systemName: "puzzlepiece.extension.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 52, height: 52)
+                        .background(YomiTheme.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        YomiEyebrow("EXTENSION STORE")
+                        Text("More places to read")
+                            .font(YomiFont.sectionTitle)
+                            .foregroundStyle(YomiTheme.textPrimary)
+                        Text("\(groups.count) extension packages · \(languages.count - 1) languages")
+                            .font(YomiFont.caption)
+                            .foregroundStyle(YomiTheme.textSecondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                HStack(spacing: 8) {
+                    YomiTag("\(installedCommunityCount) installed", tint: YomiTheme.success)
+                    YomiTag("\(repos.count) repositories", tint: YomiTheme.accentStrong)
+                    Spacer()
+                    Button {
+                        Task { await loadStore(forceRefresh: true) }
+                    } label: {
+                        if isRefreshing {
+                            ProgressView().tint(YomiTheme.textPrimary).scaleEffect(0.65)
+                        } else {
+                            Label("Refresh", systemImage: "arrow.clockwise")
+                        }
+                    }
+                    .buttonStyle(YomiSecondaryButtonStyle())
+                    .disabled(isRefreshing)
+                }
+            }
         }
     }
 
-    private func loadReposAndPackages(forceRefresh: Bool = false) {
-        isLoading = true
-        Task {
-            repos = (try? await repoRepo.getAllRepos()) ?? []
-            var packages: [RemoteExtensionPackage] = []
+    private func errorBanner(_ message: String) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(YomiTheme.warning)
+            Text(message)
+                .font(YomiFont.caption)
+                .foregroundStyle(YomiTheme.textSecondary)
+                .lineLimit(2)
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(YomiTheme.warning.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
 
-            for repo in repos {
-                if let index = try? await repoManager.fetchRepoIndex(from: repo.url, forceRefresh: forceRefresh) {
-                    packages.append(contentsOf: index.extensions)
+    // MARK: - Installed sources
+
+    private var installedCard: some View {
+        YomiCard(padding: 14) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Installed sources")
+                            .font(YomiFont.cardTitle)
+                            .foregroundStyle(YomiTheme.textPrimary)
+                        Text("Built-in connectors and community extensions")
+                            .font(YomiFont.caption)
+                            .foregroundStyle(YomiTheme.textSecondary)
+                    }
+                    Spacer()
+                    Text("\(extensionManager.installedSources.count)")
+                        .font(YomiFont.number)
+                        .foregroundStyle(YomiTheme.accentStrong)
+                }
+
+                HStack(spacing: -8) {
+                    ForEach(extensionManager.installedSources.prefix(6).map { $0.manifest }) { manifest in
+                        SourceIconView(
+                            name: manifest.name,
+                            iconUrl: manifest.iconUrl,
+                            size: 32
+                        )
+                        .overlay(Circle().stroke(YomiTheme.surface, lineWidth: 2))
+                    }
+                    Spacer()
+                    Button {
+                        isShowingInstalledSources = true
+                    } label: {
+                        Label("Manage", systemImage: "slider.horizontal.3")
+                    }
+                    .buttonStyle(YomiSecondaryButtonStyle())
+                }
+            }
+        }
+    }
+
+    private var repositoriesCard: some View {
+        YomiCard(padding: 14) {
+            HStack(spacing: 12) {
+                Image(systemName: "shippingbox.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(YomiTheme.warning)
+                    .frame(width: 38, height: 38)
+                    .background(YomiTheme.warning.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Repositories")
+                        .font(YomiFont.cardTitle)
+                        .foregroundStyle(YomiTheme.textPrimary)
+                    Text(repos.first?.name ?? "Keiyoushi")
+                        .font(YomiFont.caption)
+                        .foregroundStyle(YomiTheme.textSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Button {
+                    isShowingRepositories = true
+                } label: {
+                    Text("Manage")
+                }
+                .buttonStyle(YomiSecondaryButtonStyle())
+            }
+        }
+    }
+
+    // MARK: - Controls
+
+    private var controls: some View {
+        VStack(spacing: 10) {
+            YomiSearchField(text: $searchQuery, placeholder: "Search extensions and languages")
+
+            HStack(spacing: 8) {
+                Menu {
+                    Button("All languages") { languageFilter = "all" }
+                    ForEach(languages.filter { $0 != "all" }, id: \.self) { language in
+                        Button(language.uppercased()) { languageFilter = language }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "globe")
+                            .font(.system(size: 10, weight: .bold))
+                        Text(languageFilter == "all" ? "All languages" : languageFilter.uppercased())
+                            .font(YomiFont.caption.weight(.semibold))
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8, weight: .bold))
+                    }
+                    .foregroundStyle(YomiTheme.textSecondary)
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 7)
+                    .background(YomiTheme.surface)
+                    .overlay(Capsule().stroke(YomiTheme.border, lineWidth: 1))
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 7) {
+                        ForEach(StoreFilter.allCases, id: \.self) { option in
+                            YomiFilterChip(
+                                title: option.title,
+                                isSelected: storeFilter == option,
+                                icon: option.icon
+                            ) {
+                                withAnimation(.easeOut(duration: 0.18)) { storeFilter = option }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Catalog
+
+    private var catalogSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            YomiSectionHeader(
+                "Available Extensions",
+                subtitle: "\(filteredGroups.count) result\(filteredGroups.count == 1 ? "" : "s")"
+            )
+
+            if isLoading {
+                VStack(spacing: 9) {
+                    ForEach(0..<5, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous)
+                            .fill(YomiTheme.surface)
+                            .frame(height: 88)
+                    }
+                }
+            } else if filteredGroups.isEmpty {
+                YomiEmptyState(
+                    icon: "puzzlepiece.extension",
+                    title: "No Extensions Found",
+                    message: searchQuery.isEmpty
+                        ? "Add a repository or refresh the catalog to discover new sources."
+                        : "Try a different extension name, language, or filter.",
+                    actionTitle: searchQuery.isEmpty ? "Manage Repositories" : "Clear Search"
+                ) {
+                    if searchQuery.isEmpty {
+                        isShowingRepositories = true
+                    } else {
+                        searchQuery = ""
+                        languageFilter = "all"
+                        storeFilter = .all
+                    }
+                }
+            } else {
+                LazyVStack(spacing: 9) {
+                    ForEach(filteredGroups) { group in
+                        extensionRow(group)
+                    }
+                }
+            }
+        }
+    }
+
+    private func extensionRow(_ group: ExtensionCatalogGroup) -> some View {
+        let variant = selectedVariant(for: group)
+        let selectedInstalled = variant.map { isSourceInstalled($0.id) } ?? false
+        let anyInstalled = hasAnyInstalledVariant(group)
+        let updateAvailable = isUpdateAvailable(group)
+
+        return HStack(alignment: .top, spacing: 12) {
+            SourceIconView(name: group.name, iconUrl: group.iconUrl, size: 44)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text(group.name)
+                        .font(YomiFont.cardTitle)
+                        .foregroundStyle(YomiTheme.textPrimary)
+                        .lineLimit(1)
+                    if group.isNsfw {
+                        YomiTag("18+", tint: YomiTheme.danger)
+                    }
+                    if updateAvailable {
+                        YomiTag("UPDATE", tint: YomiTheme.warning)
+                    }
+                }
+
+                Text(variantHost(variant))
+                    .font(YomiFont.caption)
+                    .foregroundStyle(YomiTheme.textSecondary)
+                    .lineLimit(1)
+
+                HStack(spacing: 6) {
+                    Text("v\(variant?.version ?? "—")")
+                        .font(YomiFont.micro)
+                        .foregroundStyle(YomiTheme.textTertiary)
+                    if group.variantCount > 1 {
+                        Text("· \(group.variantCount) languages")
+                            .font(YomiFont.micro)
+                            .foregroundStyle(YomiTheme.textTertiary)
+                    }
+                    if anyInstalled && !selectedInstalled {
+                        Text("· installed in another language")
+                            .font(YomiFont.micro)
+                            .foregroundStyle(YomiTheme.success)
+                            .lineLimit(1)
+                    }
                 }
             }
 
-            self.availablePackages = packages
+            Spacer(minLength: 2)
 
-            // Extract unique available languages sorted alphabetically with 'all' first
-            let langs = Set(packages.map { $0.lang.lowercased() })
-            let sortedLangs = ["all"] + langs.filter { $0 != "all" }.sorted()
-            self.availableLanguages = sortedLangs
+            VStack(alignment: .trailing, spacing: 7) {
+                if group.variantCount > 1 {
+                    Menu {
+                        ForEach(group.variants) { option in
+                            Button {
+                                selectedLanguages[group.packageKey] = option.lang
+                            } label: {
+                                if option.lang == variant?.lang {
+                                    Label(option.lang.uppercased(), systemImage: "checkmark")
+                                } else {
+                                    Text(option.lang.uppercased())
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text((variant?.lang ?? "en").uppercased())
+                                .font(YomiFont.micro)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 7, weight: .bold))
+                        }
+                        .foregroundStyle(YomiTheme.textSecondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(YomiTheme.elevatedSurface)
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
 
-            self.isLoading = false
+                if selectedInstalled {
+                    Label("Installed", systemImage: "checkmark")
+                        .font(YomiFont.micro)
+                        .foregroundStyle(YomiTheme.success)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 6)
+                        .background(YomiTheme.success.opacity(0.12))
+                        .clipShape(Capsule())
+                } else {
+                    Button {
+                        install(variant)
+                    } label: {
+                        if let id = variant?.id, installingPackageIds.contains(id) {
+                            ProgressView().tint(.white).scaleEffect(0.6)
+                        } else {
+                            Text(updateAvailable ? "Update" : anyInstalled ? "Add" : "Install")
+                        }
+                    }
+                    .buttonStyle(YomiPrimaryButtonStyle())
+                    .disabled(variant == nil || installingPackageIds.contains(variant?.id ?? -1))
+                }
+            }
         }
-    }
-
-    private func reloadAll() async {
-        loadReposAndPackages(forceRefresh: true)
-    }
-
-    private func addRepository(urlString: String) {
-        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        newRepoURL = ""
-        isLoading = true
-
-        Task {
-            do {
-                let normalizedUrl = repoManager.normalizeRepoUrl(trimmed)
-                let index = try await repoManager.fetchRepoIndex(from: normalizedUrl)
-                let repo = ExtensionRepo(
-                    name: index.name,
-                    url: normalizedUrl,
-                    websiteUrl: index.website,
-                    sourcesCount: index.extensions.count,
-                    lastChecked: Date()
-                )
-                try await repoRepo.upsertRepo(repo)
-                loadReposAndPackages()
-            } catch {
-                errorMessage = "Could not add repository: \(error.localizedDescription)"
-                isShowingErrorAlert = true
-                isLoading = false
+        .padding(12)
+        .background(YomiTheme.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous)
+                .stroke(YomiTheme.border, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous))
+        .contextMenu {
+            if let variant {
+                Button {
+                    install(variant)
+                } label: {
+                    Label("Install \(variant.lang.uppercased())", systemImage: "arrow.down.circle")
+                }
+            }
+            if anyInstalled {
+                Button(role: .destructive) {
+                    isShowingInstalledSources = true
+                } label: {
+                    Label("Manage Installed Sources", systemImage: "trash")
+                }
             }
         }
     }
 
-    private func deleteRepository(_ repo: ExtensionRepo) {
-        Task {
-            try? await repoRepo.deleteRepo(url: repo.url)
-            loadReposAndPackages()
-        }
+    // MARK: - State helpers
+
+    private func selectedVariant(for group: ExtensionCatalogGroup) -> RemoteExtensionPackage? {
+        guard let defaultVariant = group.defaultVariant else { return nil }
+        guard let language = selectedLanguages[group.packageKey] else { return defaultVariant }
+        return group.variants.first { $0.lang == language } ?? defaultVariant
     }
 
-    private func installPackage(_ package: RemoteExtensionPackage) {
+    private func isSourceInstalled(_ sourceId: Int64) -> Bool {
+        extensionManager.installedSources.contains { $0.manifest.id == sourceId }
+    }
+
+    private func hasAnyInstalledVariant(_ group: ExtensionCatalogGroup) -> Bool {
+        group.variants.contains { isSourceInstalled($0.id) }
+    }
+
+    private func isUpdateAvailable(_ group: ExtensionCatalogGroup) -> Bool {
+        let variant = selectedVariant(for: group)
+        guard let variant,
+              let installed = extensionManager.installedSources.first(where: { $0.manifest.id == variant.id }) else {
+            return false
+        }
+        return installed.manifest.version != variant.version
+    }
+
+    private func variantHost(_ variant: RemoteExtensionPackage?) -> String {
+        guard let variant, let host = URL(string: variant.baseUrl)?.host else {
+            return variant?.baseUrl ?? "Community source"
+        }
+        return host
+    }
+
+    // MARK: - Actions
+
+    private func loadStore(forceRefresh: Bool = false) async {
+        if availablePackages.isEmpty { isLoading = true }
+        isRefreshing = true
+        errorMessage = nil
+
+        do {
+            repos = try await repoRepo.getAllRepos()
+            var collected: [Int64: RemoteExtensionPackage] = [:]
+            var failures = 0
+
+            await withTaskGroup(of: [RemoteExtensionPackage].self) { group in
+                for repo in repos {
+                    group.addTask {
+                        do {
+                            let index = try await RepoManager.shared.fetchRepoIndex(
+                                from: repo.url,
+                                forceRefresh: forceRefresh
+                            )
+                            return index.extensions
+                        } catch {
+                            return []
+                        }
+                    }
+                }
+
+                for await packages in group {
+                    if packages.isEmpty { failures += 1 }
+                    for package in packages {
+                        collected[package.id] = package
+                    }
+                }
+            }
+
+            availablePackages = Array(collected.values)
+            if availablePackages.isEmpty {
+                errorMessage = "No repository catalog could be loaded. Check your connection and repository URLs."
+            } else if failures > 0 {
+                errorMessage = "\(failures) repository could not be fully loaded. Showing the extensions that were available."
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+
+        isLoading = false
+        isRefreshing = false
+    }
+
+    private func install(_ package: RemoteExtensionPackage?) {
+        guard let package, !installingPackageIds.contains(package.id) else { return }
         installingPackageIds.insert(package.id)
+
         Task {
             do {
                 _ = try await repoManager.installExtension(package: package)
                 extensionManager.reloadInstalledSources()
             } catch {
-                errorMessage = "Failed to install \(package.name): \(error.localizedDescription)"
-                isShowingErrorAlert = true
+                errorMessage = "Install failed: \(error.localizedDescription)"
             }
             installingPackageIds.remove(package.id)
         }
     }
 }
 
-// MARK: - Extension Group Row View
+enum StoreFilter: String, CaseIterable {
+    case all = "All"
+    case installed = "Installed"
+    case updates = "Updates"
+    case nsfw = "18+"
 
-/// One row per extension package. When a package ships multiple language sources (e.g. Akuma
-/// with 27 languages) they collapse here behind a compact language menu.
-struct ExtensionGroupRow: View {
-    let group: ExtensionCatalogGroup
-    @Binding var selectedLanguage: String
-    let isInstalled: (RemoteExtensionPackage) -> Bool
-    let isInstalling: (RemoteExtensionPackage) -> Bool
-    let onInstall: (RemoteExtensionPackage) -> Void
+    var title: String { rawValue }
 
-    private var activeVariant: RemoteExtensionPackage? {
-        if let match = group.variants.first(where: { $0.lang.caseInsensitiveCompare(selectedLanguage) == .orderedSame }) {
-            return match
+    var icon: String {
+        switch self {
+        case .all: return "square.grid.2x2.fill"
+        case .installed: return "checkmark.circle.fill"
+        case .updates: return "arrow.triangle.2.circlepath"
+        case .nsfw: return "exclamationmark.triangle.fill"
         }
-        return group.defaultVariant
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            AsyncImage(url: URL(string: group.iconUrl ?? "")) { phase in
-                switch phase {
-                case .success(let img):
-                    img.resizable().aspectRatio(contentMode: .fit)
-                default:
-                    Image(systemName: "puzzlepiece.extension")
-                        .font(.title2)
-                        .foregroundStyle(YomiTheme.accent)
-                }
-            }
-            .frame(width: 38, height: 38)
-            .background(YomiTheme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(group.name)
-                    .font(.subheadline.bold())
-                    .foregroundStyle(YomiTheme.textPrimary)
-                    .lineLimit(1)
-
-                HStack(spacing: 6) {
-                    if group.variants.count > 1 {
-                        Menu {
-                            ForEach(group.variants) { variant in
-                                Button {
-                                    selectedLanguage = variant.lang
-                                } label: {
-                                    if variant.lang.caseInsensitiveCompare(activeVariant?.lang ?? "") == .orderedSame {
-                                        Label(variant.lang.uppercased(), systemImage: "checkmark")
-                                    } else {
-                                        Text(variant.lang.uppercased())
-                                    }
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 3) {
-                                Text(activeVariant?.lang.uppercased() ?? "EN")
-                                    .font(.caption2.bold())
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 8, weight: .bold))
-                            }
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(YomiTheme.surface)
-                            .clipShape(Capsule())
-                        }
-                    } else {
-                        Text(activeVariant?.lang.uppercased() ?? "EN")
-                            .font(.caption2.bold())
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(YomiTheme.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
-                    }
-
-                    Text("v\(activeVariant?.version ?? "1.0.0")")
-                        .font(.caption2)
-                        .foregroundStyle(YomiTheme.textSecondary)
-
-                    if group.variants.count > 1 {
-                        Text("\(group.variants.count) languages")
-                            .font(.caption2)
-                            .foregroundStyle(YomiTheme.textSecondary)
-                            .lineLimit(1)
-                    }
-
-                    if group.isNsfw {
-                        Text("18+")
-                            .font(.caption2.bold())
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(Color.red.opacity(0.2))
-                            .foregroundStyle(Color.red)
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
-                    }
-                }
-            }
-
-            Spacer()
-
-            if let variant = activeVariant {
-                if isInstalled(variant) {
-                    Button("Installed") {}
-                        .font(.caption.bold())
-                        .buttonStyle(.bordered)
-                        .disabled(true)
-                } else if isInstalling(variant) {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                        .frame(width: 60)
-                } else {
-                    Button("Install") {
-                        onInstall(variant)
-                    }
-                    .font(.caption.bold())
-                    .buttonStyle(.borderedProminent)
-                    .tint(YomiTheme.accent)
-                }
-            }
-        }
-        .padding(.vertical, 4)
     }
 }

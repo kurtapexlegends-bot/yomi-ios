@@ -25,8 +25,11 @@ public struct ReaderContainerView: View {
     @State private var isLoading: Bool = true
     @State private var errorMessage: String? = nil
     @State private var localSource: (any SourceProtocol)? = nil
+    @State private var allChapters: [Chapter] = []
+    @State private var isBookmarked: Bool = false
 
     private let chapterRepo = ChapterRepository()
+    private let trackRepo = TrackRepository()
     private let downloadManager = DownloadManager.shared
     private let extensionManager = ExtensionManager.shared
     private let cloudSync = CloudSyncCoordinator.shared
@@ -35,7 +38,24 @@ public struct ReaderContainerView: View {
     public init(manga: Manga, chapter: Chapter) {
         self.manga = manga
         self._chapter = State(initialValue: chapter)
-        self._viewer = State(initialValue: manga.viewer)
+
+        let defaults = UserDefaults.standard
+        let savedViewer = defaults.object(forKey: "yomi.reader.defaultViewer") as? Int
+        let resolvedViewer: MangaViewer = manga.viewer != .defaultViewer
+            ? manga.viewer
+            : (savedViewer.flatMap(MangaViewer.init(rawValue:)) ?? .defaultViewer)
+
+        let savedTapZone = defaults.object(forKey: "yomi.reader.tapZones") as? Int
+        let resolvedTapZone = savedTapZone.flatMap(TapZoneLayout.init(rawValue:)) ?? .leftRight
+
+        self._viewer = State(initialValue: resolvedViewer)
+        self._isAutocropEnabled = State(initialValue: defaults.bool(forKey: "yomi.reader.autocrop"))
+        self._isInvertColorsEnabled = State(initialValue: defaults.bool(forKey: "yomi.reader.invert"))
+        self._customBrightness = State(
+            initialValue: CGFloat(defaults.object(forKey: "yomi.reader.brightness") as? Double ?? 1.0)
+        )
+        self._tapZoneLayout = State(initialValue: resolvedTapZone)
+        self._isBookmarked = State(initialValue: chapter.bookmark)
     }
 
     public var body: some View {
@@ -78,6 +98,15 @@ public struct ReaderContainerView: View {
                     isInvertColorsEnabled: $isInvertColorsEnabled,
                     customBrightness: $customBrightness,
                     tapZoneLayout: $tapZoneLayout,
+                    isBookmarked: $isBookmarked,
+                    chapters: allChapters,
+                    currentChapterId: chapter.id,
+                    onSelectChapter: { selected in
+                        selectChapter(selected)
+                    },
+                    onToggleBookmark: {
+                        toggleBookmark()
+                    },
                     onDismiss: {
                         dismiss()
                     },
@@ -145,7 +174,23 @@ public struct ReaderContainerView: View {
         }
         .statusBarHidden(!isHUDVisible)
         .onAppear {
+            loadChapters()
             loadPages()
+        }
+        .onChange(of: viewer) { _, newValue in
+            UserDefaults.standard.set(newValue.rawValue, forKey: "yomi.reader.defaultViewer")
+        }
+        .onChange(of: isAutocropEnabled) { _, newValue in
+            UserDefaults.standard.set(newValue, forKey: "yomi.reader.autocrop")
+        }
+        .onChange(of: isInvertColorsEnabled) { _, newValue in
+            UserDefaults.standard.set(newValue, forKey: "yomi.reader.invert")
+        }
+        .onChange(of: customBrightness) { _, newValue in
+            UserDefaults.standard.set(Double(newValue), forKey: "yomi.reader.brightness")
+        }
+        .onChange(of: tapZoneLayout) { _, newValue in
+            UserDefaults.standard.set(newValue.rawValue, forKey: "yomi.reader.tapZones")
         }
         .onChange(of: currentPage) { _, newPage in
             handlePageChanged(to: newPage)
@@ -203,48 +248,79 @@ public struct ReaderContainerView: View {
                 try? await chapterRepo.updateProgress(chapterId: chId, lastPageRead: newPage, isRead: isComplete)
                 cloudSync.recordProgress(mangaUrl: manga.url, chapterUrl: chapter.url, page: newPage, isRead: isComplete)
 
-                // Sync to AniList if chapter completed (guard non-finite values to avoid Int64 traps)
-                if isComplete && AniListClient.shared.isLoggedIn && chapter.chapterNumber.isFinite {
+                // Sync the linked AniList entry rather than guessing a media ID from the chapter number.
+                if isComplete,
+                   AniListClient.shared.isLoggedIn,
+                   chapter.chapterNumber.isFinite,
+                   let mangaId = manga.id,
+                   let track = try? await trackRepo.getTrack(
+                       mangaId: mangaId,
+                       syncId: TrackerServiceType.aniList.rawValue
+                   ) {
                     try? await AniListClient.shared.updateProgress(
-                        mediaId: Int64(chapter.chapterNumber),
+                        mediaId: track.remoteId,
                         chapterProgress: Int(chapter.chapterNumber),
-                        status: .reading,
-                        score: 0.0
+                        status: track.status,
+                        score: track.score
                     )
                 }
             }
         }
     }
 
-    private func goToNextChapter() {
-        guard let mId = manga.id else { return }
+    private func loadChapters() {
+        guard let mangaId = manga.id else { return }
         Task { @MainActor in
-            let allChapters = (try? await chapterRepo.getChapters(forMangaId: mId)) ?? []
-            if let currentIdx = allChapters.firstIndex(where: { $0.url == chapter.url }) {
-                // Chapters are sorted descending (latest first); next chronological is previous index
-                if currentIdx > 0 {
-                    let nextCh = allChapters[currentIdx - 1]
-                    self.chapter = nextCh
-                    self.currentPage = 0
-                    loadPages()
-                }
+            allChapters = (try? await chapterRepo.getChapters(forMangaId: mangaId)) ?? []
+            if let refreshed = allChapters.first(where: { $0.id == chapter.id }) {
+                chapter = refreshed
+                isBookmarked = refreshed.bookmark
             }
         }
     }
 
-    private func goToPreviousChapter() {
-        guard let mId = manga.id else { return }
-        Task { @MainActor in
-            let allChapters = (try? await chapterRepo.getChapters(forMangaId: mId)) ?? []
-            if let currentIdx = allChapters.firstIndex(where: { $0.url == chapter.url }) {
-                if currentIdx < allChapters.count - 1 {
-                    let prevCh = allChapters[currentIdx + 1]
-                    self.chapter = prevCh
-                    self.currentPage = 0
-                    loadPages()
-                }
-            }
+    private func selectChapter(_ selected: Chapter) {
+        chapter = selected
+        isBookmarked = selected.bookmark
+        currentPage = 0
+        loadPages()
+        if !allChapters.contains(where: { $0.id == selected.id }) {
+            loadChapters()
         }
+    }
+
+    private func toggleBookmark() {
+        guard let chapterId = chapter.id else { return }
+        let newValue = !isBookmarked
+        isBookmarked = newValue
+        chapter.bookmark = newValue
+        if let index = allChapters.firstIndex(where: { $0.id == chapterId }) {
+            allChapters[index].bookmark = newValue
+        }
+
+        Task {
+            try? await chapterRepo.setBookmark(chapterId: chapterId, isBookmarked: newValue)
+        }
+    }
+
+    private func goToNextChapter() {
+        if allChapters.isEmpty {
+            loadChapters()
+            return
+        }
+        guard let currentIdx = allChapters.firstIndex(where: { $0.id == chapter.id || $0.url == chapter.url }),
+              currentIdx > 0 else { return }
+        selectChapter(allChapters[currentIdx - 1])
+    }
+
+    private func goToPreviousChapter() {
+        if allChapters.isEmpty {
+            loadChapters()
+            return
+        }
+        guard let currentIdx = allChapters.firstIndex(where: { $0.id == chapter.id || $0.url == chapter.url }),
+              currentIdx < allChapters.count - 1 else { return }
+        selectChapter(allChapters[currentIdx + 1])
     }
 
     private func switchSourceToMangaPill() {

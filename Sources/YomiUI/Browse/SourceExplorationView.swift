@@ -6,127 +6,76 @@ public struct SourceExplorationView: View {
     public let source: any SourceProtocol
 
     @State private var mangas: [Manga] = []
-    @State private var libraryMangaUrls: Set<String> = []
-    @State private var filterMode: Int = 0 // 0 = Popular, 1 = Latest
+    @State private var libraryKeys: Set<String> = []
+    @State private var mode: SourceBrowseMode = .popular
     @State private var searchQuery: String = ""
     @State private var currentPage: Int = 1
     @State private var hasNextPage: Bool = true
     @State private var isLoading: Bool = false
+    @State private var isLoadingMore: Bool = false
     @State private var errorMessage: String?
     @State private var availableFilters: [Filter] = []
     @State private var appliedFilters: [Filter] = []
     @State private var isFilterSheetPresented: Bool = false
 
-    private var hasActiveFilters: Bool {
-        appliedFilters.contains { !$0.isDefault }
-    }
-
     private let mangaRepo = MangaRepository()
-    private let columns = [GridItem(.adaptive(minimum: 105, maximum: 160), spacing: 12)]
+    private let columns = [GridItem(.adaptive(minimum: 108, maximum: 158), spacing: 12)]
 
     public init(source: any SourceProtocol) {
         self.source = source
     }
 
-    public var body: some View {
-        VStack(spacing: 0) {
-            Picker("Mode", selection: $filterMode) {
-                Text("Popular").tag(0)
-                if source.manifest.supportsLatest {
-                    Text("Latest").tag(1)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .onChange(of: filterMode) { _, _ in
-                resetAndFetch()
-            }
+    private var hasActiveFilters: Bool {
+        appliedFilters.contains { !$0.isDefault }
+    }
 
-            Group {
-                if isLoading && mangas.isEmpty {
-                    Spacer()
-                    ProgressView("Loading \(source.manifest.name)...")
-                        .foregroundStyle(YomiTheme.textSecondary)
-                    Spacer()
-                } else if let error = errorMessage, mangas.isEmpty {
-                    VStack(spacing: 12) {
-                        Spacer()
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 40))
-                            .foregroundStyle(YomiTheme.accent)
-                        Text("Failed to Load")
-                            .font(.headline)
-                            .foregroundStyle(YomiTheme.textPrimary)
-                        Text(error)
-                            .font(.caption)
-                            .foregroundStyle(YomiTheme.textSecondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 32)
-                        Button {
-                            resetAndFetch()
-                        } label: {
-                            Label("Retry", systemImage: "arrow.clockwise")
-                                .font(.subheadline.bold())
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 8)
-                                .background(YomiTheme.accent)
-                                .foregroundStyle(.white)
-                                .clipShape(Capsule())
-                        }
-                        .padding(.top, 4)
-                        Spacer()
-                    }
-                } else if mangas.isEmpty {
-                    VStack(spacing: 8) {
-                        Spacer()
-                        Image(systemName: "magnifyingglass")
-                            .font(.largeTitle)
-                            .foregroundStyle(YomiTheme.textSecondary)
-                        Text("No Manga Found")
-                            .font(.headline)
-                            .foregroundStyle(YomiTheme.textPrimary)
-                        Spacer()
-                    }
-                } else {
-                    ScrollView {
-                        LazyVGrid(columns: columns, spacing: 14) {
-                            ForEach(mangas, id: \.stableId) { manga in
-                                let displayManga = resolvedManga(manga)
-                                NavigationLink(value: displayManga) {
-                                    MangaCardView(manga: displayManga, onToggleLibrary: {
-                                        loadLibraryUrls()
-                                    })
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(16)
+    private var hasQuery: Bool {
+        !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    public var body: some View {
+        ZStack {
+            YomiBackground()
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    sourceHero
+                    searchAndMode
+
+                    if isLoading && mangas.isEmpty {
+                        skeletonGrid
+                    } else if let errorMessage, mangas.isEmpty {
+                        errorState(errorMessage)
+                    } else if mangas.isEmpty {
+                        YomiEmptyState(
+                            icon: "magnifyingglass",
+                            title: "No Titles Found",
+                            message: hasQuery
+                                ? "No titles matched this search inside \(source.manifest.name)."
+                                : "This source returned an empty catalog. Pull to refresh or try another mode.",
+                            actionTitle: "Retry",
+                            action: { reload() }
+                        )
+                    } else {
+                        resultsGrid
 
                         if hasNextPage {
-                            ProgressView()
-                                .padding()
-                                .onAppear {
-                                    fetchNextPage()
-                                }
+                            loadMoreButton
                         }
                     }
-                    .refreshable {
-                        resetAndFetch()
-                    }
                 }
+                .padding(.horizontal, YomiTheme.contentPadding)
+                .padding(.top, 12)
+                .padding(.bottom, 30)
             }
+            .scrollIndicators(.hidden)
+            .refreshable { reload() }
         }
         .navigationTitle(source.manifest.name)
-        .searchable(text: $searchQuery, prompt: "Search \(source.manifest.name)...")
-        .onSubmit(of: .search) {
-            resetAndFetch()
-        }
-        .onChange(of: searchQuery) { _, newQuery in
-            if newQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                resetAndFetch()
-            }
-        }
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        #endif
         .toolbar {
             if !availableFilters.isEmpty {
                 ToolbarItem(placement: .primaryAction) {
@@ -134,7 +83,7 @@ public struct SourceExplorationView: View {
                         isFilterSheetPresented = true
                     } label: {
                         Image(systemName: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-                            .foregroundStyle(hasActiveFilters ? YomiTheme.accent : YomiTheme.textSecondary)
+                            .foregroundStyle(hasActiveFilters ? YomiTheme.accentStrong : YomiTheme.textSecondary)
                     }
                 }
             }
@@ -145,45 +94,235 @@ public struct SourceExplorationView: View {
                 defaultFilters: availableFilters,
                 onApply: { updated in
                     appliedFilters = updated
-                    resetAndFetch()
+                    reload()
                 },
                 onReset: {
                     appliedFilters = availableFilters
-                    resetAndFetch()
+                    reload()
                 }
             )
         }
         .onAppear {
-            loadLibraryUrls()
+            loadLibraryKeys()
             if availableFilters.isEmpty {
                 let filters = source.getFilters()
-                self.availableFilters = filters
-                self.appliedFilters = filters
+                availableFilters = filters
+                appliedFilters = filters
             }
-            if mangas.isEmpty { resetAndFetch() }
-        }
-        .navigationDestination(for: Manga.self) { manga in
-            MangaDetailView(manga: manga)
+            if mangas.isEmpty { reload() }
         }
     }
 
+    // MARK: - Hero
+
+    private var sourceHero: some View {
+        YomiCard(padding: 16) {
+            HStack(spacing: 13) {
+                SourceIconView(
+                    name: source.manifest.name,
+                    iconUrl: source.manifest.iconUrl,
+                    size: 54
+                )
+
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 6) {
+                        Text(source.manifest.name)
+                            .font(YomiFont.sectionTitle)
+                            .foregroundStyle(YomiTheme.textPrimary)
+                            .lineLimit(1)
+                        if source.manifest.isNsfw {
+                            YomiTag("18+", tint: YomiTheme.danger)
+                        }
+                    }
+                    Text(URL(string: source.manifest.baseUrl)?.host ?? source.manifest.baseUrl)
+                        .font(YomiFont.caption)
+                        .foregroundStyle(YomiTheme.textSecondary)
+                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        YomiTag(source.manifest.lang.uppercased(), tint: YomiTheme.accentStrong)
+                        YomiTag("v\(source.manifest.version)", tint: YomiTheme.textSecondary)
+                        if isBuiltInSource(source.manifest.id) {
+                            YomiTag("NATIVE", tint: YomiTheme.success)
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    // MARK: - Search and modes
+
+    private var searchAndMode: some View {
+        VStack(spacing: 10) {
+            YomiSearchField(
+                text: $searchQuery,
+                placeholder: "Search inside \(source.manifest.name)",
+                onSubmit: { reload() }
+            )
+            .onChange(of: searchQuery) { _, newValue in
+                if newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    reload()
+                }
+            }
+
+            HStack(spacing: 8) {
+                if source.manifest.supportsLatest {
+                    YomiSegmentedControl(
+                        selection: $mode,
+                        items: SourceBrowseMode.allCases,
+                        title: { $0.title }
+                    )
+                    .onChange(of: mode) { _, _ in
+                        if !hasQuery { reload() }
+                    }
+                } else {
+                    HStack {
+                        YomiTag("POPULAR", tint: YomiTheme.accentStrong)
+                        Spacer()
+                        if hasActiveFilters {
+                            YomiTag("FILTERED", tint: YomiTheme.warning)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Results
+
+    private var resultsGrid: some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
+            ForEach(mangas, id: \.stableId) { manga in
+                NavigationLink {
+                    MangaDetailView(manga: resolvedManga(manga))
+                } label: {
+                    MangaGridCard(
+                        manga: resolvedManga(manga),
+                        showsLibraryBadge: true
+                    )
+                }
+                .buttonStyle(.plain)
+                .contextMenu {
+                    Button {
+                        Task { await toggleLibrary(manga) }
+                    } label: {
+                        Label(
+                            resolvedManga(manga).inLibrary ? "Remove from Library" : "Add to Library",
+                            systemImage: resolvedManga(manga).inLibrary ? "trash" : "heart"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private var loadMoreButton: some View {
+        Button {
+            fetchNextPage()
+        } label: {
+            HStack(spacing: 8) {
+                if isLoadingMore {
+                    ProgressView().tint(YomiTheme.textPrimary).scaleEffect(0.65)
+                } else {
+                    Image(systemName: "arrow.down.circle")
+                }
+                Text(isLoadingMore ? "Loading" : "Load More")
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(YomiSecondaryButtonStyle())
+        .disabled(isLoading || isLoadingMore)
+    }
+
+    private var skeletonGrid: some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
+            ForEach(0..<6, id: \.self) { _ in
+                RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous)
+                    .fill(YomiTheme.surface)
+                    .aspectRatio(11.0 / 16.0, contentMode: .fit)
+                    .overlay(ProgressView().tint(YomiTheme.textTertiary).scaleEffect(0.7))
+            }
+        }
+    }
+
+    private func errorState(_ message: String) -> some View {
+        YomiCard(padding: 18) {
+            VStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(YomiTheme.warning)
+                Text("Could Not Load Source")
+                    .font(YomiFont.sectionTitle)
+                    .foregroundStyle(YomiTheme.textPrimary)
+                Text(message)
+                    .font(YomiFont.caption)
+                    .foregroundStyle(YomiTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(2)
+                Button("Retry", action: { reload() })
+                    .buttonStyle(YomiPrimaryButtonStyle())
+                    .padding(.top, 4)
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    // MARK: - Data
+
     private func resolvedManga(_ manga: Manga) -> Manga {
         var copy = manga
-        if libraryMangaUrls.contains(manga.url) {
+        if libraryKeys.contains("\(manga.sourceId)|\(manga.url)") {
             copy.inLibrary = true
         }
         return copy
     }
 
-    private func loadLibraryUrls() {
+    private func loadLibraryKeys() {
         Task {
-            if let libMangas = try? await mangaRepo.getLibraryMangas() {
-                self.libraryMangaUrls = Set(libMangas.map(\.url))
+            guard let library = try? await mangaRepo.getLibraryMangas() else { return }
+            await MainActor.run {
+                libraryKeys = Set(library.map { "\($0.sourceId)|\($0.url)" })
             }
         }
     }
 
-    private func resetAndFetch() {
+    private func toggleLibrary(_ manga: Manga) async {
+        let key = "\(manga.sourceId)|\(manga.url)"
+        let isInLibrary = libraryKeys.contains(key)
+        do {
+            if isInLibrary {
+                // Catalog results do not carry a database id. Resolve the saved row by
+                // source/url before mutating it, otherwise removal silently does nothing.
+                let saved = try await mangaRepo.getManga(sourceId: manga.sourceId, url: manga.url)
+                if let id = manga.id ?? saved?.id {
+                    try await mangaRepo.setInLibrary(mangaId: id, inLibrary: false)
+                }
+            } else {
+                var copy = manga
+                copy.inLibrary = true
+                let saved = try await mangaRepo.upsert(copy)
+                if let id = saved.id {
+                    try await mangaRepo.setInLibrary(mangaId: id, inLibrary: true)
+                }
+            }
+
+            await MainActor.run {
+                if isInLibrary {
+                    libraryKeys.remove(key)
+                } else {
+                    libraryKeys.insert(key)
+                }
+                if let index = mangas.firstIndex(where: { $0.stableId == manga.stableId }) {
+                    mangas[index].inLibrary = !isInLibrary
+                }
+            }
+        } catch {
+            print("[SourceExploration] Library toggle failed: \(error)")
+        }
+    }
+
+    private func reload() {
         currentPage = 1
         mangas = []
         errorMessage = nil
@@ -192,32 +331,51 @@ public struct SourceExplorationView: View {
     }
 
     private func fetchNextPage() {
-        guard !isLoading && hasNextPage else { return }
-        isLoading = true
+        guard !isLoading, !isLoadingMore, hasNextPage else { return }
+        if currentPage == 1 {
+            isLoading = true
+        } else {
+            isLoadingMore = true
+        }
         errorMessage = nil
 
         Task {
             do {
                 let result: MangaPageResult
-                let hasQuery = !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 if hasQuery || hasActiveFilters {
-                    result = try await source.searchManga(query: searchQuery, filters: appliedFilters, page: currentPage)
-                } else if filterMode == 0 {
+                    result = try await source.searchManga(
+                        query: searchQuery,
+                        filters: appliedFilters,
+                        page: currentPage
+                    )
+                } else if mode == .popular {
                     result = try await source.getPopularManga(page: currentPage)
                 } else {
                     result = try await source.getLatestUpdates(page: currentPage)
                 }
 
-                let existingIds = Set(self.mangas.map(\.stableId))
-                let uniqueNew = result.mangas.filter { !existingIds.contains($0.stableId) }
-                self.mangas.append(contentsOf: uniqueNew)
-                self.hasNextPage = result.hasNextPage
-                self.currentPage += 1
+                await MainActor.run {
+                    let existing = Set(mangas.map(\.stableId))
+                    mangas.append(contentsOf: result.mangas.filter { !existing.contains($0.stableId) })
+                    hasNextPage = result.hasNextPage
+                    currentPage += 1
+                    isLoading = false
+                    isLoadingMore = false
+                }
             } catch {
-                print("[SourceExploration] Error fetching page \(currentPage): \(error)")
-                self.errorMessage = error.localizedDescription
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    isLoading = false
+                    isLoadingMore = false
+                }
             }
-            self.isLoading = false
         }
     }
+}
+
+enum SourceBrowseMode: String, CaseIterable {
+    case popular = "Popular"
+    case latest = "Latest"
+
+    var title: String { rawValue }
 }
