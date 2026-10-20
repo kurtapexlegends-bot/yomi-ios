@@ -44,7 +44,7 @@ public struct BrowseView: View {
                     }
                 }
             }
-            .toolbar(.hidden, for: .navigationBar)
+            .yomiNavigationBarHidden()
             .sheet(isPresented: $isShowingSourceManagement) {
                 SourceManagementSheet {
                     extensionManager.reloadInstalledSources()

@@ -125,11 +125,11 @@ public struct HistoryView: View {
                 .scrollIndicators(.hidden)
                 .refreshable { await loadHistory(showsSpinner: false) }
             }
-            .toolbar(.hidden, for: .navigationBar)
+            .yomiNavigationBarHidden()
             .navigationDestination(item: $detailManga) { manga in
                 MangaDetailView(manga: manga)
             }
-            .fullScreenCover(item: $readerRequest, onDismiss: {
+            .yomiFullScreenCover(item: $readerRequest, onDismiss: {
                 Task { await loadHistory(showsSpinner: false) }
             }) { request in
                 ReaderContainerView(manga: request.manga, chapter: request.chapter)

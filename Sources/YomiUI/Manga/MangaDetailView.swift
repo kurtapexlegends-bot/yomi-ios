@@ -172,7 +172,7 @@ public struct MangaDetailView: View {
         } message: {
             Text("This changes reading flags only. Bookmarks and downloads stay intact.")
         }
-        .fullScreenCover(item: $activeChapterForReading, onDismiss: {
+        .yomiFullScreenCover(item: $activeChapterForReading, onDismiss: {
             Task { await loadChapters(forceRefresh: false) }
         }) { chapter in
             ReaderContainerView(manga: manga, chapter: chapter)

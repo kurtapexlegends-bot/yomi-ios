@@ -107,11 +107,11 @@ public struct UpdatesView: View {
                 .scrollIndicators(.hidden)
                 .refreshable { await refreshUpdatesFromSources() }
             }
-            .toolbar(.hidden, for: .navigationBar)
+            .yomiNavigationBarHidden()
             .navigationDestination(item: $detailManga) { manga in
                 MangaDetailView(manga: manga)
             }
-            .fullScreenCover(item: $readerRequest, onDismiss: {
+            .yomiFullScreenCover(item: $readerRequest, onDismiss: {
                 Task { await loadUpdates() }
             }) { request in
                 ReaderContainerView(manga: request.manga, chapter: request.chapter)

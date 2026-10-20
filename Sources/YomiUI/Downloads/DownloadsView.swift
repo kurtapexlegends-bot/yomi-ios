@@ -117,7 +117,7 @@ public struct DownloadsView: View {
         } message: {
             Text("This removes \(totalChapters) offline chapter(s) from this device. Library entries and reading progress stay intact.")
         }
-        .fullScreenCover(item: $readerRequest, onDismiss: {
+        .yomiFullScreenCover(item: $readerRequest, onDismiss: {
             Task { await loadDownloads() }
         }) { request in
             ReaderContainerView(manga: request.manga, chapter: request.chapter)

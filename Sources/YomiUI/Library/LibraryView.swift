@@ -152,7 +152,7 @@ public struct LibraryView: View {
                 .scrollIndicators(.hidden)
                 .refreshable { await loadLibrary() }
             }
-            .toolbar(.hidden, for: .navigationBar)
+            .yomiNavigationBarHidden()
             .sheet(isPresented: $isShowingCategoryManager) {
                 NavigationStack { CategoryManagerView() }
                     .presentationDetents([.medium, .large])
@@ -166,7 +166,7 @@ public struct LibraryView: View {
                 )
                 .presentationDetents([.medium])
             }
-            .fullScreenCover(item: $readerRequest, onDismiss: {
+            .yomiFullScreenCover(item: $readerRequest, onDismiss: {
                 Task { await loadLibrary(showsSpinner: false) }
             }) { request in
                 ReaderContainerView(manga: request.manga, chapter: request.chapter)

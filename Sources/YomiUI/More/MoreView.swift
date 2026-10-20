@@ -43,7 +43,7 @@ public struct MoreView: View {
                 }
                 .scrollIndicators(.hidden)
             }
-            .toolbar(.hidden, for: .navigationBar)
+            .yomiNavigationBarHidden()
             .navigationDestination(for: MoreDestination.self) { destination in
                 switch destination {
                 case .downloads: DownloadsView()
