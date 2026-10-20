@@ -116,7 +116,7 @@ public struct HistoryView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .primaryAction) {
                     if !historyItems.isEmpty {
                         Menu {
                             Button(role: .destructive) {
@@ -337,7 +337,7 @@ public struct HistoryView: View {
 
     private func deleteHistory(_ item: HistoryItem) {
         Task {
-            try? await historyRepo.deleteHistory(forMangaId: item.mangaId)
+            try? await historyRepo.deleteHistoryItem(id: item.id)
             await loadHistory()
         }
     }

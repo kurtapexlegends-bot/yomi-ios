@@ -148,7 +148,7 @@ public struct LibraryView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .navigation) {
                     if unreadTotal > 0 {
                         Text("\(unreadTotal) unread")
                             .font(YomiFont.caption)
@@ -156,7 +156,7 @@ public struct LibraryView: View {
                     }
                 }
 
-                ToolbarItemGroup(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .primaryAction) {
                     Button {
                         isShowingFilters = true
                     } label: {

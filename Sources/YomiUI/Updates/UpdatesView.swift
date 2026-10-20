@@ -116,7 +116,7 @@ public struct UpdatesView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .navigation) {
                     if unreadCount > 0 {
                         Text("\(unreadCount) unread")
                             .font(YomiFont.caption)
@@ -124,7 +124,7 @@ public struct UpdatesView: View {
                     }
                 }
 
-                ToolbarItemGroup(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .primaryAction) {
                     if unreadCount > 0 {
                         Button {
                             markAllRead()
