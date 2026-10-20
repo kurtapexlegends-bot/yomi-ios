@@ -12,8 +12,10 @@ public enum NetworkBridge {
                 return ["status": 400, "error": "Invalid URL string: \(urlString)"]
             }
 
-            // Canonicalize the dead MangaKakalot host before any cookie or challenge lookup.
-            if url.host?.contains("mangakakalot") == true {
+            // Canonicalize only the dead MangaKakalot apex/legacy domains. Image CDN hosts such
+            // as `k21.mangakakalot.gg` must keep their subdomain or every page image breaks.
+            let rawHost = url.host?.lowercased() ?? ""
+            if rawHost == "mangakakalot.com" || rawHost.hasSuffix(".mangakakalot.com") {
                 var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
                 components?.host = "www.mangakakalot.gg"
                 if let canonical = components?.url { url = canonical }

@@ -23,9 +23,10 @@ public enum CloudflareResponseDetector {
     ]
 
     public static func isChallenge(statusCode: Int, headers: [String: String], body: String) -> Bool {
-        let normalizedHeaders = Dictionary(uniqueKeysWithValues: headers.map {
-            ($0.key.lowercased(), $0.value.lowercased())
-        })
+        var normalizedHeaders: [String: String] = [:]
+        for (key, value) in headers {
+            normalizedHeaders[key.lowercased()] = value.lowercased()
+        }
 
         if normalizedHeaders["cf-mitigated"]?.contains("challenge") == true {
             return true
