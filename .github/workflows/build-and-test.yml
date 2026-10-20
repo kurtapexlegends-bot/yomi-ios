@@ -55,6 +55,40 @@ jobs:
         path: derived_data_sim/Build/Products/Release-iphonesimulator/Yomi.app
         retention-days: 14
 
+    - name: Install and launch on an iOS Simulator
+      run: |
+        set -euo pipefail
+        UDID=$(xcrun simctl list devices available | grep -m1 -E '^[[:space:]]+iPhone' | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
+        if [ -z "$UDID" ]; then
+          echo "No available iPhone simulator found."
+          exit 1
+        fi
+        echo "Using simulator $UDID"
+        xcrun simctl boot "$UDID" || true
+        xcrun simctl bootstatus "$UDID" -b
+        xcrun simctl status_bar "$UDID" override --time "9:41" --batteryState charged --batteryLevel 100 || true
+        xcrun simctl install "$UDID" derived_data_sim/Build/Products/Release-iphonesimulator/Yomi.app
+        xcrun simctl launch "$UDID" com.yomiapp.reader
+        sleep 8
+        mkdir -p smoke
+        xcrun simctl io "$UDID" screenshot smoke/01-library.png
+        xcrun simctl spawn "$UDID" launchctl list > smoke/launchctl.txt || true
+        if ! grep -q com.yomiapp.reader smoke/launchctl.txt; then
+          echo "Yomi is not running after launch."
+          xcrun simctl spawn "$UDID" log show --style compact --last 2m --predicate 'process == "Yomi"' > smoke/yomi.log || true
+          cat smoke/yomi.log
+          exit 1
+        fi
+        xcrun simctl spawn "$UDID" log show --style compact --last 2m --predicate 'process == "Yomi"' > smoke/yomi.log || true
+
+    - name: Upload simulator smoke evidence
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: Yomi-Simulator-Smoke
+        path: smoke
+        retention-days: 14
+
     - name: Build iOS Device App & Package IPA (for Sideloadly / AltStore)
       run: |
         xcodebuild build \
