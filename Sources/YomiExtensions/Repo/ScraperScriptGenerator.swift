@@ -10,9 +10,7 @@ enum ScraperScriptGenerator {
         while baseUrl.hasSuffix("/") { baseUrl.removeLast() }
 
         if isMangakakalot {
-            if baseUrl.isEmpty || baseUrl.contains("mangakakalot.com") || baseUrl.contains("mangakakalot.tv") || baseUrl.contains("mangakakalot.org") {
-                baseUrl = "https://www.mangakakalot.gg"
-            }
+            baseUrl = "https://www.mangakakalove.com"
             return generateMangakakalotScript(baseUrl: baseUrl)
         }
 
@@ -59,14 +57,14 @@ enum ScraperScriptGenerator {
 
             getPopularManga: async function(page) {
                 const url = (page <= 1) ? BASE_URL : `${BASE_URL}/manga-list/hot-manga?page=${page}`;
-                const resp = await fetch(url);
+                const resp = await fetch(url, { headers: { "Referer": BASE_URL + "/" } });
                 const html = await resp.text();
                 return this.parseMangaList(html);
             },
 
             getLatestUpdates: async function(page) {
                 const url = (page <= 1) ? BASE_URL : `${BASE_URL}/manga-list/latest-manga?page=${page}`;
-                const resp = await fetch(url);
+                const resp = await fetch(url, { headers: { "Referer": BASE_URL + "/" } });
                 const html = await resp.text();
                 return this.parseMangaList(html);
             },
@@ -100,15 +98,17 @@ enum ScraperScriptGenerator {
                 }
 
                 if (trimmed.length > 0) {
-                    const slug = encodeURIComponent(trimmed.toLowerCase().replace(/\\s+/g, "_"));
-                    const resp = await fetch(`${BASE_URL}/search/story/${slug}?page=${p}`);
+                    const slug = encodeURIComponent(trimmed.toLowerCase().replace(/[^\\w\\s-]/g, "").trim().replace(/\\s+/g, "_"));
+                    const resp = await fetch(`${BASE_URL}/search/story/${slug}?page=${p}`, {
+                        headers: { "Referer": BASE_URL + "/" }
+                    });
                     const html = await resp.text();
                     return this.parseMangaList(html);
                 }
 
                 // Filter search mode
                 const url = `${BASE_URL}/genre/${genreParam}?type=${sortParam}&state=${statusParam}&page=${p}`;
-                const resp = await fetch(url);
+                const resp = await fetch(url, { headers: { "Referer": BASE_URL + "/" } });
                 const html = await resp.text();
                 return this.parseMangaList(html);
             },
@@ -130,7 +130,7 @@ enum ScraperScriptGenerator {
                     seen.add(link);
 
                     let title = __yomi_attr(item, "a[href*='/manga/']", "title") ||
-                                __yomi_text(item, "h3 a, a.item-title, h3, h4, .title") ||
+                                __yomi_text(item, "h3 a, a.item-title, h3, h4, .title, .story_name a") ||
                                 __yomi_attr(item, "img", "alt") ||
                                 __yomi_attr(item, "", "title") ||
                                 __yomi_text(item, "");
@@ -151,10 +151,10 @@ enum ScraperScriptGenerator {
 
             getMangaDetails: async function(url) {
                 const fullUrl = url.startsWith("http") ? url : `${BASE_URL}${url}`;
-                const resp = await fetch(fullUrl);
+                const resp = await fetch(fullUrl, { headers: { "Referer": BASE_URL + "/" } });
                 const html = await resp.text();
                 const title = __yomi_text(html, "h1, .story-info-right h1, .manga-info-top h1") || "Manga";
-                const desc = __yomi_text(html, "#panel-story-info-description, .panel-story-info-description, .story-info-right-extent") || "";
+                const desc = __yomi_text(html, ".description, #panel-story-info-description, .panel-story-info-description, .story-info-right-extent") || "";
                 let thumb = __yomi_attr(html, ".story-info-left img, .info-image img, .manga-info-top img", "src");
                 if (thumb && !thumb.startsWith("http")) {
                     thumb = `${BASE_URL}${thumb.startsWith('/') ? '' : '/'}${thumb}`;
@@ -169,8 +169,92 @@ enum ScraperScriptGenerator {
 
             getChapterList: async function(url) {
                 const fullUrl = url.startsWith("http") ? url : `${BASE_URL}${url}`;
-                const resp = await fetch(fullUrl);
+                let slug = "";
+                const slugMatch = fullUrl.match(/\\/manga\\/([^\\/\\?#]+)/);
+                if (slugMatch && slugMatch[1]) {
+                    slug = slugMatch[1];
+                }
+
+                if (slug) {
+                    try {
+                        const apiUrl = `https://www.mangakakalove.com/api/manga/${slug}/chapters?limit=-1`;
+                        const apiResp = await fetch(apiUrl, {
+                            headers: {
+                                "Referer": fullUrl,
+                                "Accept": "application/json"
+                            }
+                        });
+                        const apiData = await apiResp.json();
+                        if (apiData && apiData.success && apiData.data && Array.isArray(apiData.data.chapters)) {
+                            const chapters = [];
+                            const list = apiData.data.chapters;
+                            for (let i = 0; i < list.length; i++) {
+                                const ch = list[i];
+                                const chSlug = ch.chapter_slug || `chapter-${ch.chapter_num || (list.length - i)}`;
+                                const chUrl = `https://www.mangakakalove.com/manga/${slug}/${chSlug}`;
+                                const name = ch.chapter_name || `Chapter ${ch.chapter_num || (list.length - i)}`;
+                                let dateUpload = Date.now();
+                                if (ch.updated_at) {
+                                    const parsed = Date.parse(ch.updated_at);
+                                    if (!isNaN(parsed)) dateUpload = parsed;
+                                }
+                                chapters.push({
+                                    url: chUrl,
+                                    name: name.trim(),
+                                    chapterNumber: typeof ch.chapter_num === "number" ? ch.chapter_num : (list.length - i),
+                                    dateUpload: dateUpload
+                                });
+                            }
+                            if (chapters.length > 0) {
+                                return chapters;
+                            }
+                        }
+                    } catch(e) {}
+                }
+
+                const resp = await fetch(fullUrl, { headers: { "Referer": BASE_URL + "/" } });
                 const html = await resp.text();
+
+                if (!slug) {
+                    const comicSlug = __yomi_attr(html, "#chapter-list-container", "data-comic-slug");
+                    if (comicSlug) {
+                        try {
+                            const apiUrl = `https://www.mangakakalove.com/api/manga/${comicSlug}/chapters?limit=-1`;
+                            const apiResp = await fetch(apiUrl, {
+                                headers: {
+                                    "Referer": fullUrl,
+                                    "Accept": "application/json"
+                                }
+                            });
+                            const apiData = await apiResp.json();
+                            if (apiData && apiData.success && apiData.data && Array.isArray(apiData.data.chapters)) {
+                                const chapters = [];
+                                const list = apiData.data.chapters;
+                                for (let i = 0; i < list.length; i++) {
+                                    const ch = list[i];
+                                    const chSlug = ch.chapter_slug || `chapter-${ch.chapter_num || (list.length - i)}`;
+                                    const chUrl = `https://www.mangakakalove.com/manga/${comicSlug}/${chSlug}`;
+                                    const name = ch.chapter_name || `Chapter ${ch.chapter_num || (list.length - i)}`;
+                                    let dateUpload = Date.now();
+                                    if (ch.updated_at) {
+                                        const parsed = Date.parse(ch.updated_at);
+                                        if (!isNaN(parsed)) dateUpload = parsed;
+                                    }
+                                    chapters.push({
+                                        url: chUrl,
+                                        name: name.trim(),
+                                        chapterNumber: typeof ch.chapter_num === "number" ? ch.chapter_num : (list.length - i),
+                                        dateUpload: dateUpload
+                                    });
+                                }
+                                if (chapters.length > 0) {
+                                    return chapters;
+                                }
+                            }
+                        } catch(e) {}
+                    }
+                }
+
                 const links = __yomi_selectAll(html, ".row-content-chapter li a, .chapter-list a, .chapter-name, a[href*='/chapter']");
                 const chapters = [];
                 const seen = new Set();
@@ -197,14 +281,14 @@ enum ScraperScriptGenerator {
 
             getPageList: async function(url) {
                 const fullUrl = url.startsWith("http") ? url : `${BASE_URL}${url}`;
-                const resp = await fetch(fullUrl);
+                const resp = await fetch(fullUrl, { headers: { "Referer": BASE_URL + "/" } });
                 const html = await resp.text();
                 const images = __yomi_selectAll(html, ".container-chapter-reader img, img.img-loading, #readerarea img");
                 return images.map(img => {
                     const pageUrl = __yomi_attr(img, "", "data-src") || __yomi_attr(img, "", "src");
                     return {
                         url: pageUrl,
-                        headers: { "Referer": BASE_URL }
+                        headers: { "Referer": "https://www.mangakakalove.com/" }
                     };
                 }).filter(p => p.url && p.url.length > 0);
             }

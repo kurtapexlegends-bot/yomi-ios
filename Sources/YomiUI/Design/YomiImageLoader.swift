@@ -71,12 +71,12 @@ public final class YomiImageCache: @unchecked Sendable {
         var request = URLRequest(url: url)
         request.timeoutInterval = 15
 
-        // Determine referer header required by CDNs (MangaPill, Mangakakalot, etc.)
+        // Determine referer header required by CDNs (MangaPill, Mangakakalot, 2xstorage, etc.)
         let host = url.host?.lowercased() ?? ""
         if host.contains("readdetectiveconan.com") || host.contains("mangapill.com") {
             request.setValue("https://mangapill.com/", forHTTPHeaderField: "Referer")
-        } else if host.contains("mangakakalot") {
-            request.setValue("https://www.mangakakalot.gg/", forHTTPHeaderField: "Referer")
+        } else if host.contains("mangakakalot") || host.contains("mangakakalove") || host.contains("2xstorage") || host.contains("waitst") {
+            request.setValue("https://www.mangakakalove.com/", forHTTPHeaderField: "Referer")
         } else if let scheme = url.scheme, !host.isEmpty {
             request.setValue("\(scheme)://\(host)/", forHTTPHeaderField: "Referer")
         }

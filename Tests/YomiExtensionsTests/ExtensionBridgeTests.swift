@@ -298,6 +298,47 @@ final class ExtensionBridgeTests: XCTestCase {
         let emptyExt = JSExtension(manifest: manifest, scriptContent: emptyScript)
         XCTAssertTrue(emptyExt.getFilters().isEmpty)
     }
+
+    func testMangaKakalotChapterFallbackDOMParsing() throws {
+        guard let context = JSContext() else {
+            XCTFail("Failed to create JSContext")
+            return
+        }
+        HTMLBridge.inject(into: context)
+        let pkg = RemoteExtensionPackage(
+            id: 2528986671771677900,
+            name: "MangaKakalot",
+            lang: "en",
+            baseUrl: "https://www.mangakakalove.com",
+            scriptUrl: ""
+        )
+        let script = RepoManager.shared.generateScraperScript(for: pkg)
+        context.evaluateScript(script)
+
+        let sampleHtml = """
+        <div class="row-content-chapter">
+            <li><a href="https://www.mangakakalove.com/manga/solo-leveling/chapter-10">Chapter 10</a></li>
+            <li><a href="https://www.mangakakalove.com/manga/solo-leveling/chapter-9">Chapter 9</a></li>
+        </div>
+        """
+        context.setObject(sampleHtml, forKeyedSubscript: "__sampleHtml" as NSString)
+        let testScript = """
+        (function() {
+            const links = __yomi_selectAll(__sampleHtml, ".row-content-chapter li a, .chapter-list a, .chapter-name, a[href*='/chapter']");
+            return links.map((l, i) => ({
+                url: __yomi_attr(l, "", "href"),
+                name: __yomi_text(l, "")
+            }));
+        })()
+        """
+        guard let result = context.evaluateScript(testScript), let chapters = result.toArray() as? [[String: Any]] else {
+            XCTFail("Chapter fallback evaluation failed")
+            return
+        }
+        XCTAssertEqual(chapters.count, 2)
+        XCTAssertEqual(chapters[0]["name"] as? String, "Chapter 10")
+        XCTAssertEqual(chapters[1]["name"] as? String, "Chapter 9")
+    }
 }
 
 

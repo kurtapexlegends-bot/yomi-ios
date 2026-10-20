@@ -258,10 +258,31 @@ public final class JSExtension: SourceProtocol, @unchecked Sendable {
 
         var request = URLRequest(url: url)
         request.setValue(NetworkBridge.defaultUserAgent, forHTTPHeaderField: "User-Agent")
-        request.setValue(manifest.baseUrl, forHTTPHeaderField: "Referer")
+
+        let host = url.host?.lowercased() ?? ""
+        if host.contains("readdetectiveconan.com") || host.contains("mangapill.com") {
+            request.setValue("https://mangapill.com/", forHTTPHeaderField: "Referer")
+        } else if host.contains("mangakakalot") || host.contains("mangakakalove") || host.contains("2xstorage") || host.contains("waitst") {
+            request.setValue("https://www.mangakakalove.com/", forHTTPHeaderField: "Referer")
+        } else {
+            var base = manifest.baseUrl
+            if !base.hasSuffix("/") { base += "/" }
+            request.setValue(base, forHTTPHeaderField: "Referer")
+        }
+
         request.setValue("image/avif,image/webp,image/apng,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
         for (k, v) in page.headers {
-            request.setValue(v, forHTTPHeaderField: k)
+            if k.lowercased() == "referer" {
+                var ref = v
+                if ref.contains("2xstorage") || ref.contains("mangakakalot") || ref.contains("mangakakalove") || ref.contains("waitst") {
+                    ref = "https://www.mangakakalove.com/"
+                } else if !ref.hasSuffix("/") && (ref.hasPrefix("http://") || ref.hasPrefix("https://")) && !ref.dropFirst(8).contains("/") {
+                    ref += "/"
+                }
+                request.setValue(ref, forHTTPHeaderField: k)
+            } else {
+                request.setValue(v, forHTTPHeaderField: k)
+            }
         }
         if let cookies = HTTPCookieStorage.shared.cookies(for: url), !cookies.isEmpty {
             for (key, value) in HTTPCookie.requestHeaderFields(with: cookies) {

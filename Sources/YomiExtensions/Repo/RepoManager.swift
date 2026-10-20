@@ -314,11 +314,13 @@ public final class RepoManager: @unchecked Sendable {
         }
 
         // Save manifest metadata
+        let isMangaKakalot = package.baseUrl.lowercased().contains("mangakakalot") || package.name.lowercased().contains("mangakakalot")
+        let effectiveBaseUrl = isMangaKakalot ? "https://www.mangakakalove.com" : package.baseUrl
         let manifest = SourceManifest(
             id: package.id,
             name: package.name,
             lang: package.lang,
-            baseUrl: package.baseUrl,
+            baseUrl: effectiveBaseUrl,
             iconUrl: package.iconUrl,
             version: package.version,
             isNsfw: package.isNsfw

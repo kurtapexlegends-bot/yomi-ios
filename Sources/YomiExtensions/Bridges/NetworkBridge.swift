@@ -12,12 +12,11 @@ public enum NetworkBridge {
                 return ["status": 400, "error": "Invalid URL string: \(urlString)"]
             }
 
-            // Canonicalize only the dead MangaKakalot apex/legacy domains. Image CDN hosts such
-            // as `k21.mangakakalot.gg` must keep their subdomain or every page image breaks.
+            // Canonicalize MangaKakalot domains to non-challenged mirror (mangakakalove.com)
             let rawHost = url.host?.lowercased() ?? ""
-            if rawHost == "mangakakalot.com" || rawHost.hasSuffix(".mangakakalot.com") {
+            if rawHost == "mangakakalot.com" || rawHost.hasSuffix(".mangakakalot.com") || rawHost == "mangakakalot.gg" || rawHost == "www.mangakakalot.gg" {
                 var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-                components?.host = "www.mangakakalot.gg"
+                components?.host = "www.mangakakalove.com"
                 if let canonical = components?.url { url = canonical }
             }
 
@@ -30,6 +29,18 @@ public enum NetworkBridge {
             if let cookies = HTTPCookieStorage.shared.cookies(for: url), !cookies.isEmpty {
                 for (key, value) in HTTPCookie.requestHeaderFields(with: cookies) {
                     request.setValue(value, forHTTPHeaderField: key)
+                }
+            }
+
+            // Always ensure an appropriate Referer header is provided
+            if request.value(forHTTPHeaderField: "Referer") == nil {
+                let host = url.host?.lowercased() ?? ""
+                if host.contains("mangakakalot") || host.contains("mangakakalove") || host.contains("2xstorage") || host.contains("waitst") {
+                    request.setValue("https://www.mangakakalove.com/", forHTTPHeaderField: "Referer")
+                } else if host.contains("readdetectiveconan.com") || host.contains("mangapill.com") {
+                    request.setValue("https://mangapill.com/", forHTTPHeaderField: "Referer")
+                } else if let scheme = url.scheme, !host.isEmpty {
+                    request.setValue("\(scheme)://\(host)/", forHTTPHeaderField: "Referer")
                 }
             }
 
@@ -110,9 +121,10 @@ public enum NetworkBridge {
         var normalized = value
         if normalized.contains("mangakakalot") {
             normalized = normalized
-                .replacingOccurrences(of: "://www.mangakakalot.com", with: "://www.mangakakalot.gg")
-                .replacingOccurrences(of: "://mangakakalot.com", with: "://www.mangakakalot.gg")
-                .replacingOccurrences(of: "://mangakakalot.gg", with: "://www.mangakakalot.gg")
+                .replacingOccurrences(of: "://www.mangakakalot.com", with: "://www.mangakakalove.com")
+                .replacingOccurrences(of: "://mangakakalot.com", with: "://www.mangakakalove.com")
+                .replacingOccurrences(of: "://www.mangakakalot.gg", with: "://www.mangakakalove.com")
+                .replacingOccurrences(of: "://mangakakalot.gg", with: "://www.mangakakalove.com")
         }
         return normalized
     }

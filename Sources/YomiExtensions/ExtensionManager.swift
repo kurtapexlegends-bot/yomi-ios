@@ -50,16 +50,23 @@ public final class ExtensionManager: @unchecked Sendable {
                         continue
                     }
 
-                    // Self-heal MangaKakalot scrapers to include modern DOM selectors (.itemupdate)
+                    // Self-heal MangaKakalot scrapers to include modern DOM selectors & chapters API
                     let isMangaKakalot = manifest.baseUrl.lowercased().contains("mangakakalot") || manifest.name.lowercased().contains("mangakakalot")
                     if isMangaKakalot {
+                        var updatedManifest = manifest
+                        if updatedManifest.baseUrl != "https://www.mangakakalove.com" {
+                            updatedManifest.baseUrl = "https://www.mangakakalove.com"
+                            if let updatedData = try? JSONEncoder().encode(updatedManifest) {
+                                try? updatedData.write(to: metaURL, options: .atomic)
+                            }
+                        }
                         let pkg = RemoteExtensionPackage(
-                            id: manifest.id,
-                            name: manifest.name,
-                            lang: manifest.lang,
-                            baseUrl: manifest.baseUrl,
-                            iconUrl: manifest.iconUrl,
-                            version: manifest.version,
+                            id: updatedManifest.id,
+                            name: updatedManifest.name,
+                            lang: updatedManifest.lang,
+                            baseUrl: "https://www.mangakakalove.com",
+                            iconUrl: updatedManifest.iconUrl,
+                            version: updatedManifest.version,
                             scriptUrl: ""
                         )
                         let freshScript = ScraperScriptGenerator.generateScraperScript(for: pkg)
@@ -67,6 +74,9 @@ public final class ExtensionManager: @unchecked Sendable {
                             try? freshScript.write(to: jsURL, atomically: true, encoding: .utf8)
                             scriptContent = freshScript
                         }
+                        let jsExtension = JSExtension(manifest: updatedManifest, scriptContent: scriptContent)
+                        sources.append(jsExtension)
+                        continue
                     }
 
                     let jsExtension = JSExtension(manifest: manifest, scriptContent: scriptContent)
