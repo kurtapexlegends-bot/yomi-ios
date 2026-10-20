@@ -533,15 +533,16 @@ public struct LibraryView: View {
             }
             let progress = (try? await progressTask) ?? [:]
             let history = (try? await historyTask) ?? []
+            let libraryIds = Set(loadedMangas.compactMap(\.id))
 
             var lastRead: [Int64: Date] = [:]
-            for item in history where lastRead[item.mangaId] == nil {
+            for item in history where libraryIds.contains(item.mangaId) && lastRead[item.mangaId] == nil {
                 lastRead[item.mangaId] = item.readAt
             }
 
             var seenMangaIds: Set<Int64> = []
             var recent: [HistoryItem] = []
-            for item in history where !seenMangaIds.contains(item.mangaId) {
+            for item in history where libraryIds.contains(item.mangaId) && !seenMangaIds.contains(item.mangaId) {
                 seenMangaIds.insert(item.mangaId)
                 recent.append(item)
                 if recent.count == 8 { break }

@@ -44,6 +44,21 @@ final class ExtensionCatalogTests: XCTestCase {
         XCTAssertEqual(akuma.variants.dropFirst().first?.lang, "all", "'all' should be the second variant")
     }
 
+    func testLanguageSpecificPackageNamesCollapseIntoOneGroup() throws {
+        let packages = [
+            makePackage(id: 1, name: "MangaKakalot", lang: "en", packageName: "eu.kanade.tachiyomi.extension.en.mangakakalot"),
+            makePackage(id: 2, name: "MangaKakalot", lang: "all", packageName: "eu.kanade.tachiyomi.extension.all.mangakakalot"),
+            makePackage(id: 3, name: "MangaKakalot", lang: "es", packageName: "eu.kanade.tachiyomi.extension.es.mangakakalot")
+        ]
+
+        let groups = ExtensionCatalog.group(packages)
+
+        XCTAssertEqual(groups.count, 1, "Language-specific APKs must share one store row")
+        let group = try XCTUnwrap(groups.first)
+        XCTAssertEqual(group.variantCount, 3)
+        XCTAssertEqual(group.variants.map(\.lang), ["en", "all", "es"])
+    }
+
     func testDifferentExtensionsRemainSeparateGroups() {
         let packages = [
             makePackage(id: 1, name: "Akuma", lang: "en", packageName: "pkg.akuma"),

@@ -344,14 +344,17 @@ public struct HistoryView: View {
     }
 
     private var emptyState: some View {
-        YomiEmptyState(
-            icon: "clock.badge.xmark",
-            title: searchQuery.isEmpty ? "No Reading History" : "No Matches",
-            message: searchQuery.isEmpty
-                ? "Chapters you read will appear here so you can pick up instantly."
-                : "Try a different title or clear the active history filter.",
-            actionTitle: searchQuery.isEmpty ? nil : "Clear Search",
-            action: searchQuery.isEmpty ? nil : { searchQuery = ""; filter = .all }
+        let hasQuery = !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let isFiltered = hasQuery || filter != .all
+
+        return YomiEmptyState(
+            icon: isFiltered ? "line.3.horizontal.decrease.circle" : "clock.badge.xmark",
+            title: isFiltered ? "No Matches" : "No Reading History",
+            message: isFiltered
+                ? "No chapters match this search or filter."
+                : "Chapters you read will appear here so you can pick up instantly.",
+            actionTitle: isFiltered ? "Show All History" : nil,
+            action: isFiltered ? { searchQuery = ""; filter = .all } : nil
         )
     }
 

@@ -64,6 +64,14 @@ public struct AppRootView: View {
             }
         }
         .tint(YomiTheme.accent)
+        .onChange(of: router.selectedTab) { _, tab in
+            selectedTab = tab
+        }
+        .onChange(of: selectedTab) { _, tab in
+            if let tab, router.selectedTab != tab {
+                router.selectedTab = tab
+            }
+        }
         .sheet(isPresented: $cloudflareSolver.isPresentingSolverSheet) {
             CloudflareSolverSheet()
                 .presentationDetents([.large])

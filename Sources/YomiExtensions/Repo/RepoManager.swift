@@ -195,6 +195,20 @@ public final class RepoManager: @unchecked Sendable {
         throw YomiError.jsonParsingError("Failed to decode repository index. Unrecognized schema.")
     }
 
+    /// Deterministic 63-bit FNV-1a identifier for repository packages that do not publish a source id.
+    ///
+    /// Swift's `hashValue` is randomly seeded per process, so using it for an extension id made
+    /// installed sources appear missing after every launch. FNV keeps the generated file names and
+    /// the source manifest stable across launches and devices.
+    private func stableID(for value: String) -> Int64 {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 1_099_511_628_211
+        }
+        return Int64(hash & 0x7FFF_FFFF_FFFF_FFFF)
+    }
+
     /// Extracts packages from raw JSON dictionaries (supporting nested sources arrays)
     private func parseExtensionPackages(from rawList: [[String: Any]]) -> [RemoteExtensionPackage] {
         var packages: [RemoteExtensionPackage] = []
@@ -230,7 +244,7 @@ public final class RepoManager: @unchecked Sendable {
                     } else if let unsigned = UInt64(sIdStr) {
                         sId = Int64(bitPattern: unsigned)
                     } else {
-                        sId = Int64(abs((pkgName + sLang + sName).hashValue))
+                        sId = stableID(for: "\(pkgName)|\(sLang)|\(sName)")
                     }
 
                     packages.append(RemoteExtensionPackage(
@@ -247,7 +261,7 @@ public final class RepoManager: @unchecked Sendable {
                 }
             } else {
                 let lang = item["lang"] as? String ?? "en"
-                let id = abs(Int64(pkgName.hashValue))
+                let id = stableID(for: pkgName)
                 packages.append(RemoteExtensionPackage(
                     id: id,
                     name: displayName,

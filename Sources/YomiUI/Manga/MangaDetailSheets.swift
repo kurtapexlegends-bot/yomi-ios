@@ -194,8 +194,9 @@ struct MangaCategorySheet: View {
                 let category = try await categoryRepo.createCategory(name: name)
                 categories = (try? await categoryRepo.getAllCategories()) ?? categories
                 if let id = category.id {
+                    // Select it locally; the sheet's Save action commits the assignment so Cancel
+                    // still leaves the manga's existing shelves untouched.
                     selectedIds.insert(id)
-                    try? await categoryRepo.setMangaCategories(mangaId: mangaId, categoryIds: Array(selectedIds))
                 }
                 newCategoryName = ""
             } catch {
@@ -512,10 +513,25 @@ struct MangaTrackingSheet: View {
 
     private func updateStatus(_ track: Track, status: TrackStatus) {
         Task {
-            var updated = track
-            updated.status = status
-            _ = try? await trackRepo.upsertTrack(updated)
-            await loadTracks()
+            let progress = max(track.lastChapterRead, await localChapterProgress())
+            do {
+                if aniList.isLoggedIn {
+                    try await aniList.updateProgress(
+                        mediaId: track.remoteId,
+                        chapterProgress: Int(progress),
+                        status: status,
+                        score: track.score
+                    )
+                }
+                var updated = track
+                updated.status = status
+                updated.lastChapterRead = progress
+                _ = try? await trackRepo.upsertTrack(updated)
+                await loadTracks()
+                onChanged()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 

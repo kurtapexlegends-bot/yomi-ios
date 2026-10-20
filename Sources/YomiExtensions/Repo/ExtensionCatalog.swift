@@ -66,10 +66,23 @@ public enum ExtensionCatalog {
     }
 
     public static func normalizedKey(for pkg: RemoteExtensionPackage) -> String {
-        if let packageName = pkg.packageName, !packageName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return packageName.lowercased()
+        guard let packageName = pkg.packageName,
+              !packageName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return pkg.name.lowercased()
         }
-        return pkg.name.lowercased()
+
+        // Keiyoushi package identifiers include the language segment, for example
+        // `eu.kanade.tachiyomi.extension.en.mangakakalot`. Drop that one segment so the English,
+        // Spanish, and language-neutral APKs are offered as one row with a language picker.
+        let parts = packageName.split(separator: ".").map(String.init)
+        if let extensionIndex = parts.lastIndex(of: "extension"),
+           extensionIndex + 2 < parts.count {
+            let prefix = parts[0...extensionIndex].joined(separator: ".")
+            let slug = parts[(extensionIndex + 2)...].joined(separator: ".")
+            return "\(prefix).\(slug)".lowercased()
+        }
+
+        return packageName.lowercased()
     }
 
     private static func languageRank(_ lang: String) -> Int {

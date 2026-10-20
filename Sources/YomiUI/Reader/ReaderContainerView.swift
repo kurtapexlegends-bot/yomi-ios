@@ -61,120 +61,8 @@ public struct ReaderContainerView: View {
     }
 
     public var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-
-            if isLoading {
-                ProgressView("Loading Chapter...")
-                    .foregroundStyle(.white)
-            } else if !pages.isEmpty {
-                ReaderBridgeView(
-                    pages: pages,
-                    source: localSource ?? extensionManager.getSource(id: manga.sourceId),
-                    viewer: viewer,
-                    isAutocropEnabled: isAutocropEnabled,
-                    isInvertColorsEnabled: isInvertColorsEnabled,
-                    customBrightness: customBrightness,
-                    tapZoneLayout: tapZoneLayout,
-                    currentPageIndex: $currentPage,
-                    onToggleHUD: {
-                        withAnimation { isHUDVisible.toggle() }
-                    },
-                    onRequestNextChapter: {
-                        goToNextChapter()
-                    },
-                    onRequestPreviousChapter: {
-                        goToPreviousChapter()
-                    }
-                )
-                .ignoresSafeArea()
-
-                ReaderOverlayView(
-                    chapterTitle: chapter.displayTitle,
-                    mangaTitle: manga.title,
-                    currentPage: $currentPage,
-                    totalPages: pages.count,
-                    isHUDVisible: $isHUDVisible,
-                    viewer: $viewer,
-                    isAutocropEnabled: $isAutocropEnabled,
-                    isInvertColorsEnabled: $isInvertColorsEnabled,
-                    customBrightness: $customBrightness,
-                    tapZoneLayout: $tapZoneLayout,
-                    isBookmarked: $isBookmarked,
-                    chapters: allChapters,
-                    currentChapterId: chapter.id,
-                    onSelectChapter: { selected in
-                        selectChapter(selected)
-                    },
-                    onToggleBookmark: {
-                        toggleBookmark()
-                    },
-                    onDismiss: {
-                        dismiss()
-                    },
-                    onNextChapter: {
-                        goToNextChapter()
-                    },
-                    onPreviousChapter: {
-                        goToPreviousChapter()
-                    }
-                )
-            } else {
-                VStack(spacing: 16) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 48))
-                        .foregroundStyle(YomiTheme.accent)
-
-                    Text("No Pages Available")
-                        .font(.headline.bold())
-                        .foregroundStyle(.white)
-
-                    Text(errorMessage ?? "The source does not host readable pages for \(chapter.displayTitle). It may be an external release or temporarily offline.")
-                        .font(.caption)
-                        .foregroundStyle(YomiTheme.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
-
-                    HStack(spacing: 12) {
-                        Button {
-                            loadPages()
-                        } label: {
-                            Label("Retry", systemImage: "arrow.clockwise")
-                                .font(.subheadline.bold())
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(YomiTheme.accent)
-
-                        if manga.sourceId == MangaDexSource.sourceId {
-                            Button {
-                                switchSourceToMangaPill()
-                            } label: {
-                                Label("Read on MangaPill", systemImage: "arrow.triangle.swap")
-                                    .font(.subheadline.bold())
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .tint(.green)
-                        } else {
-                            Button {
-                                goToNextChapter()
-                            } label: {
-                                Label("Next Chapter", systemImage: "forward.fill")
-                                    .font(.subheadline.bold())
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .tint(YomiTheme.accent)
-                        }
-                    }
-
-                    Button("Close") { dismiss() }
-                        .font(.subheadline)
-                        .foregroundStyle(YomiTheme.textSecondary)
-                        .padding(.top, 4)
-                }
-                .padding(24)
-            }
-        }
-        .statusBarHidden(!isHUDVisible)
+        readerContent
+            .statusBarHidden(!isHUDVisible)
         .onAppear {
             loadChapters()
             loadPages()
@@ -199,6 +87,138 @@ public struct ReaderContainerView: View {
         }
         .onChange(of: currentPage) { _, newPage in
             handlePageChanged(to: newPage)
+        }
+    }
+
+    @ViewBuilder
+    private var readerContent: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            if isLoading {
+                ProgressView("Loading Chapter...")
+                    .foregroundStyle(.white)
+            } else if !pages.isEmpty {
+                readerSurface
+                readerOverlay
+            } else {
+                emptyPageContent
+            }
+        }
+    }
+
+    private var readerSurface: some View {
+        ReaderBridgeView(
+            pages: pages,
+            source: localSource ?? extensionManager.getSource(id: manga.sourceId),
+            viewer: viewer,
+            isAutocropEnabled: isAutocropEnabled,
+            isInvertColorsEnabled: isInvertColorsEnabled,
+            customBrightness: customBrightness,
+            tapZoneLayout: tapZoneLayout,
+            currentPageIndex: $currentPage,
+            onToggleHUD: {
+                withAnimation { isHUDVisible.toggle() }
+            },
+            onRequestNextChapter: {
+                goToNextChapter()
+            },
+            onRequestPreviousChapter: {
+                goToPreviousChapter()
+            }
+        )
+        .ignoresSafeArea()
+    }
+
+    private var readerOverlay: some View {
+        ReaderOverlayView(
+            chapterTitle: chapter.displayTitle,
+            mangaTitle: manga.title,
+            currentPage: $currentPage,
+            totalPages: pages.count,
+            isHUDVisible: $isHUDVisible,
+            viewer: $viewer,
+            isAutocropEnabled: $isAutocropEnabled,
+            isInvertColorsEnabled: $isInvertColorsEnabled,
+            customBrightness: $customBrightness,
+            tapZoneLayout: $tapZoneLayout,
+            isBookmarked: $isBookmarked,
+            chapters: allChapters,
+            currentChapterId: chapter.id,
+            onSelectChapter: { selected in
+                selectChapter(selected)
+            },
+            onToggleBookmark: {
+                toggleBookmark()
+            },
+            onDismiss: {
+                dismiss()
+            },
+            onNextChapter: {
+                goToNextChapter()
+            },
+            onPreviousChapter: {
+                goToPreviousChapter()
+            }
+        )
+    }
+
+    private var emptyPageContent: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "photo.on.rectangle.angled")
+                .font(.system(size: 48))
+                .foregroundStyle(YomiTheme.accent)
+
+            Text("No Pages Available")
+                .font(.headline.bold())
+                .foregroundStyle(.white)
+
+            Text(errorMessage ?? "The source does not host readable pages for \(chapter.displayTitle). It may be an external release or temporarily offline.")
+                .font(.caption)
+                .foregroundStyle(YomiTheme.textSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+
+            emptyPageActions
+
+            Button("Close") { dismiss() }
+                .font(.subheadline)
+                .foregroundStyle(YomiTheme.textSecondary)
+                .padding(.top, 4)
+        }
+        .padding(24)
+    }
+
+    private var emptyPageActions: some View {
+        HStack(spacing: 12) {
+            Button {
+                loadPages()
+            } label: {
+                Label("Retry", systemImage: "arrow.clockwise")
+                    .font(.subheadline.bold())
+            }
+            .buttonStyle(.bordered)
+            .tint(YomiTheme.accent)
+
+            if manga.sourceId == MangaDexSource.sourceId {
+                Button {
+                    switchSourceToMangaPill()
+                } label: {
+                    Label("Read on MangaPill", systemImage: "arrow.triangle.swap")
+                        .font(.subheadline.bold())
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+            } else {
+                Button {
+                    goToNextChapter()
+                } label: {
+                    Label("Next Chapter", systemImage: "forward.fill")
+                        .font(.subheadline.bold())
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(YomiTheme.accent)
+            }
         }
     }
 

@@ -136,19 +136,19 @@ public struct CloudflareWebView: UIViewRepresentable {
         var progressObservation: NSKeyValueObservation?
         var loadingBinding: Binding<Bool>?
 
-        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             loadingBinding?.wrappedValue = true
         }
 
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             loadingBinding?.wrappedValue = false
         }
 
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
             loadingBinding?.wrappedValue = false
         }
 
-        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
             loadingBinding?.wrappedValue = false
         }
     }
