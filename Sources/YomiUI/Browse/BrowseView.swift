@@ -182,19 +182,22 @@ private struct SourcesCatalogView: View {
                 filters
 
                 if filteredSources.isEmpty {
+                    let hasQuery = !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    let isFiltered = hasQuery || sourceFilter != .all
+
                     YomiEmptyState(
-                        icon: "globe.badge.chevron.backward",
-                        title: searchQuery.isEmpty ? "No Sources Here" : "No Matches",
-                        message: searchQuery.isEmpty
-                            ? "Install an extension from the Extension Store to start browsing."
-                            : "Try another source name or clear the active filter.",
-                        actionTitle: searchQuery.isEmpty ? "Open Extension Store" : "Clear Search"
+                        icon: isFiltered ? "line.3.horizontal.decrease.circle" : "globe.badge.chevron.backward",
+                        title: isFiltered ? "No Matches" : "No Sources Here",
+                        message: isFiltered
+                            ? "No installed source matches this search or filter."
+                            : "Install an extension from the Extension Store to start browsing.",
+                        actionTitle: isFiltered ? "Clear Filters" : "Open Extension Store"
                     ) {
-                        if searchQuery.isEmpty {
-                            onOpenStore()
-                        } else {
+                        if isFiltered {
                             searchQuery = ""
                             sourceFilter = .all
+                        } else {
+                            onOpenStore()
                         }
                     }
                 } else {

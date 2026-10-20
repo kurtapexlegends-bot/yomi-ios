@@ -16,6 +16,7 @@ public struct GlobalSearchView: View {
     @State private var currentSourceName: String = ""
     @State private var hasSearched: Bool = false
     @State private var searchTask: Task<Void, Never>?
+    @State private var searchGeneration: Int = 0
 
     public init(sources: [any SourceProtocol]) {
         self.sources = sources
@@ -114,6 +115,7 @@ public struct GlobalSearchView: View {
                 Button {
                     if isSearching {
                         searchTask?.cancel()
+                        searchGeneration += 1
                         isSearching = false
                     } else {
                         startSearch()
@@ -198,6 +200,8 @@ public struct GlobalSearchView: View {
         guard !trimmed.isEmpty else { return }
 
         searchTask?.cancel()
+        searchGeneration += 1
+        let generation = searchGeneration
         results = []
         failedCount = 0
         searchedCount = 0
@@ -212,12 +216,15 @@ public struct GlobalSearchView: View {
             for source in targetSources {
                 if Task.isCancelled { break }
                 await MainActor.run {
+                    guard generation == searchGeneration else { return }
                     currentSourceName = source.manifest.name
                 }
 
                 do {
                     let page = try await source.searchManga(query: trimmed, filters: [], page: 1)
                     await MainActor.run {
+                        // A stopped or superseded search must never leak results into the new one.
+                        guard generation == searchGeneration else { return }
                         for manga in page.mangas {
                             guard !seen.contains(manga.stableId) else { continue }
                             seen.insert(manga.stableId)
@@ -233,6 +240,7 @@ public struct GlobalSearchView: View {
                     }
                 } catch {
                     await MainActor.run {
+                        guard generation == searchGeneration else { return }
                         failedCount += 1
                         searchedCount += 1
                     }
@@ -240,6 +248,7 @@ public struct GlobalSearchView: View {
             }
 
             await MainActor.run {
+                guard generation == searchGeneration else { return }
                 isSearching = false
             }
         }

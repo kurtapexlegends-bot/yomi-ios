@@ -17,6 +17,8 @@ public struct SourceExplorationView: View {
     @State private var availableFilters: [Filter] = []
     @State private var appliedFilters: [Filter] = []
     @State private var isFilterSheetPresented: Bool = false
+    @State private var loadGeneration: Int = 0
+    @State private var loadTask: Task<Void, Never>?
 
     private let mangaRepo = MangaRepository()
     private let columns = [GridItem(.adaptive(minimum: 108, maximum: 158), spacing: 12)]
@@ -110,6 +112,12 @@ public struct SourceExplorationView: View {
                 appliedFilters = filters
             }
             if mangas.isEmpty { reload() }
+        }
+        .onDisappear {
+            loadTask?.cancel()
+            loadGeneration += 1
+            isLoading = false
+            isLoadingMore = false
         }
     }
 
@@ -323,10 +331,14 @@ public struct SourceExplorationView: View {
     }
 
     private func reload() {
+        loadTask?.cancel()
+        loadGeneration += 1
         currentPage = 1
         mangas = []
         errorMessage = nil
         hasNextPage = true
+        isLoading = false
+        isLoadingMore = false
         fetchNextPage()
     }
 
@@ -339,22 +351,31 @@ public struct SourceExplorationView: View {
         }
         errorMessage = nil
 
-        Task {
+        let generation = loadGeneration
+        let pageToLoad = currentPage
+        let query = searchQuery
+        let filters = appliedFilters
+        let requestedMode = mode
+        let isSearchRequest = hasQuery || hasActiveFilters
+
+        loadTask = Task {
             do {
                 let result: MangaPageResult
-                if hasQuery || hasActiveFilters {
+                if isSearchRequest {
                     result = try await source.searchManga(
-                        query: searchQuery,
-                        filters: appliedFilters,
-                        page: currentPage
+                        query: query,
+                        filters: filters,
+                        page: pageToLoad
                     )
-                } else if mode == .popular {
-                    result = try await source.getPopularManga(page: currentPage)
+                } else if requestedMode == .popular {
+                    result = try await source.getPopularManga(page: pageToLoad)
                 } else {
-                    result = try await source.getLatestUpdates(page: currentPage)
+                    result = try await source.getLatestUpdates(page: pageToLoad)
                 }
 
                 await MainActor.run {
+                    // Ignore responses from a query, mode, or reload that has since been replaced.
+                    guard generation == loadGeneration else { return }
                     let existing = Set(mangas.map(\.stableId))
                     mangas.append(contentsOf: result.mangas.filter { !existing.contains($0.stableId) })
                     hasNextPage = result.hasNextPage
@@ -364,6 +385,7 @@ public struct SourceExplorationView: View {
                 }
             } catch {
                 await MainActor.run {
+                    guard generation == loadGeneration else { return }
                     errorMessage = error.localizedDescription
                     isLoading = false
                     isLoadingMore = false

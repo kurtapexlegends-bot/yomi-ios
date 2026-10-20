@@ -46,7 +46,10 @@ public struct ExtensionStoreView: View {
             result = result.filter { group in
                 group.name.localizedCaseInsensitiveContains(query)
                     || group.packageKey.localizedCaseInsensitiveContains(query)
-                    || group.variants.contains { $0.baseUrl.localizedCaseInsensitiveContains(query) }
+                    || group.variants.contains {
+                        $0.baseUrl.localizedCaseInsensitiveContains(query)
+                            || $0.lang.localizedCaseInsensitiveContains(query)
+                    }
             }
         }
 
@@ -351,6 +354,12 @@ public struct ExtensionStoreView: View {
         let selectedInstalled = variant.map { isSourceInstalled($0.id) } ?? false
         let anyInstalled = hasAnyInstalledVariant(group)
         let updateAvailable = isUpdateAvailable(group)
+        let selectedUpdateAvailable = variant.map { package in
+            guard let installed = extensionManager.installedSources.first(where: { $0.manifest.id == package.id }) else {
+                return false
+            }
+            return installed.manifest.version != package.version
+        } ?? false
 
         return HStack(alignment: .top, spacing: 12) {
             SourceIconView(name: group.name, iconUrl: group.iconUrl, size: 44)
@@ -439,7 +448,7 @@ public struct ExtensionStoreView: View {
                         if let id = variant?.id, installingPackageIds.contains(id) {
                             ProgressView().tint(.white).scaleEffect(0.6)
                         } else {
-                            Text(updateAvailable ? "Update" : anyInstalled ? "Add" : "Install")
+                            Text(selectedUpdateAvailable ? "Update" : anyInstalled ? "Add" : "Install")
                         }
                     }
                     .buttonStyle(YomiPrimaryButtonStyle())
@@ -476,8 +485,16 @@ public struct ExtensionStoreView: View {
 
     private func selectedVariant(for group: ExtensionCatalogGroup) -> RemoteExtensionPackage? {
         guard let defaultVariant = group.defaultVariant else { return nil }
-        guard let language = selectedLanguages[group.packageKey] else { return defaultVariant }
-        return group.variants.first { $0.lang == language } ?? defaultVariant
+        if let language = selectedLanguages[group.packageKey],
+           let chosen = group.variants.first(where: { $0.lang == language }) {
+            return chosen
+        }
+        // Prefer the language that is actually installed so the row shows "Installed" and the
+        // update button targets the right APK instead of silently offering the default language.
+        if let installed = group.variants.first(where: { isSourceInstalled($0.id) }) {
+            return installed
+        }
+        return defaultVariant
     }
 
     private func isSourceInstalled(_ sourceId: Int64) -> Bool {
@@ -489,12 +506,12 @@ public struct ExtensionStoreView: View {
     }
 
     private func isUpdateAvailable(_ group: ExtensionCatalogGroup) -> Bool {
-        let variant = selectedVariant(for: group)
-        guard let variant,
-              let installed = extensionManager.installedSources.first(where: { $0.manifest.id == variant.id }) else {
-            return false
+        group.variants.contains { variant in
+            guard let installed = extensionManager.installedSources.first(where: { $0.manifest.id == variant.id }) else {
+                return false
+            }
+            return installed.manifest.version != variant.version
         }
-        return installed.manifest.version != variant.version
     }
 
     private func variantHost(_ variant: RemoteExtensionPackage?) -> String {

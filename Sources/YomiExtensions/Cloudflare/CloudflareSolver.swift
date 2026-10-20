@@ -24,9 +24,18 @@ public final class CloudflareSolver: NSObject, WKNavigationDelegate, @unchecked 
     /// Human readable status shown inside the solver sheet.
     public var statusMessage: String?
 
-    private var completionHandler: ((Bool) -> Void)?
+    private var activeContinuation: CheckedContinuation<Bool, Never>?
+    private var pendingChallenges: [PendingChallenge] = []
     private var pollTimer: Task<Void, Never>?
     private var challengeHost: String = ""
+    /// Invalidates cookie-store callbacks from a challenge whose sheet has already closed.
+    private var challengeGeneration: Int = 0
+
+    private struct PendingChallenge {
+        let url: URL
+        let host: String
+        let continuation: CheckedContinuation<Bool, Never>
+    }
 
     /// Hosts whose `cf_clearance` cookie was issued by this WebKit session. Requests for these
     /// hosts may be replayed through `WebViewFetchService` when URLSession is still blocked by
@@ -39,40 +48,53 @@ public final class CloudflareSolver: NSObject, WKNavigationDelegate, @unchecked 
     }
 
     /// Resolves a Cloudflare anti-bot challenge by presenting the interactive solver sheet.
+    ///
+    /// Concurrent requests are queued instead of cancelling each other. A batch refresh can hit
+    /// several protected hosts at once, and the previous implementation surfaced only the last
+    /// challenge while silently failing every other request.
     @MainActor
     public func resolveChallenge(for url: URL) async -> Bool {
+        // Always present the site origin: Cloudflare serves an empty, unsolvable body for
+        // direct API/JSON requests, but a full challenge page for top-level navigation.
+        let origin = Self.originURL(from: url) ?? url
+        let host = origin.host?.lowercased() ?? url.host?.lowercased() ?? ""
+
+        if isPresentingSolverSheet {
+            return await withCheckedContinuation { continuation in
+                pendingChallenges.append(
+                    PendingChallenge(url: origin, host: host, continuation: continuation)
+                )
+            }
+        }
+
         return await withCheckedContinuation { continuation in
-            // Terminate any previous pending challenge so its caller never hangs.
-            self.cancelCurrentSession(notify: true)
+            beginChallenge(origin: origin, host: host, continuation: continuation)
+        }
+    }
 
-            // Always present the site origin: Cloudflare serves an empty, unsolvable body for
-            // direct API/JSON requests, but a full challenge page for top-level navigation.
-            let origin = Self.originURL(from: url) ?? url
-            self.activeChallengeUrl = origin
-            self.challengeHost = origin.host?.lowercased() ?? url.host?.lowercased() ?? ""
-            self.statusMessage = "Solve the verification below, then tap Done."
-            self.completionHandler = { success in
-                self.pollTimer?.cancel()
-                self.pollTimer = nil
-                self.isPresentingSolverSheet = false
-                self.activeWebView = nil
-                continuation.resume(returning: success)
-            }
+    @MainActor
+    private func beginChallenge(
+        origin: URL,
+        host: String,
+        continuation: CheckedContinuation<Bool, Never>
+    ) {
+        challengeGeneration += 1
+        activeChallengeUrl = origin
+        challengeHost = host
+        statusMessage = "Solve the verification below, then tap Done."
+        activeContinuation = continuation
+        isPresentingSolverSheet = true
 
-            self.isPresentingSolverSheet = true
-
-            // Poll the cookie store while the sheet is presented.
-            self.pollTimer = Task { @MainActor [weak self] in
-                for _ in 0..<80 { // Poll up to ~120 seconds
-                    try? await Task.sleep(nanoseconds: 1_500_000_000)
-                    guard let self = self, self.isPresentingSolverSheet else { return }
-                    self.inspectChallengeStatus()
-                }
-                // Timed out without clearance: resolve so callers are never left hanging.
+        // Poll the cookie store while the sheet is presented.
+        pollTimer = Task { @MainActor [weak self] in
+            for _ in 0..<80 { // Poll up to ~120 seconds
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
                 guard let self = self, self.isPresentingSolverSheet else { return }
-                self.statusMessage = "Timed out waiting for verification. Tap Done to retry."
-                self.complete(success: false)
+                self.inspectChallengeStatus()
             }
+            // Timed out without clearance: resolve this caller and offer the next queued host.
+            guard let self = self, self.isPresentingSolverSheet else { return }
+            self.finishActiveChallenge(success: false)
         }
     }
 
@@ -118,6 +140,25 @@ public final class CloudflareSolver: NSObject, WKNavigationDelegate, @unchecked 
         verifiedHostsLock.unlock()
     }
 
+    /// Clears both verified-host state and stale clearance cookies so the next protected request
+    /// presents a fresh verification sheet instead of silently replaying an expired session.
+    @MainActor
+    public func resetVerification() {
+        clearVerifiedHosts()
+        WebViewFetchService.shared.resetSession()
+
+        for cookie in HTTPCookieStorage.shared.cookies ?? [] where cookie.name == "cf_clearance" {
+            HTTPCookieStorage.shared.deleteCookie(cookie)
+        }
+
+        WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
+            let store = WKWebsiteDataStore.default().httpCookieStore
+            for cookie in cookies where cookie.name == "cf_clearance" {
+                store.delete(cookie)
+            }
+        }
+    }
+
     // MARK: - WKNavigationDelegate
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -140,24 +181,29 @@ public final class CloudflareSolver: NSObject, WKNavigationDelegate, @unchecked 
 
     @MainActor
     public func cancel() {
-        cancelCurrentSession(notify: true)
+        cancelAllChallenges()
     }
 
     // MARK: - Cookie inspection
 
     private func inspectChallengeStatus(forceCompletion: Bool = false) {
-        // Capture the target host on the main actor; the callback runs on a WebKit queue.
+        // Capture the target host and session on the main actor; the callback runs on a WebKit queue.
         let host = challengeHost
+        let generation = challengeGeneration
         WKWebsiteDataStore.default().httpCookieStore.getAllCookies { [weak self] cookies in
             guard let self = self else { return }
             let clearance = cookies.filter { Self.isClearanceCookie($0, forHost: host) }
 
             if !clearance.isEmpty {
-                DispatchQueue.main.async {
-                    self.syncCookiesAndComplete(cookies: cookies, success: true)
+                Task { @MainActor [weak self] in
+                    guard let self = self,
+                          self.challengeGeneration == generation,
+                          self.activeContinuation != nil else { return }
+                    self.syncCookiesAndComplete(cookies: cookies, success: true, host: host)
                 }
             } else if forceCompletion {
-                DispatchQueue.main.async {
+                Task { @MainActor [weak self] in
+                    guard let self = self, self.challengeGeneration == generation else { return }
                     // Nothing verified yet: keep the sheet open so the user can retry.
                     self.statusMessage = "Verification not detected yet. Complete the challenge, then tap Done again."
                 }
@@ -176,14 +222,15 @@ public final class CloudflareSolver: NSObject, WKNavigationDelegate, @unchecked 
         return CloudflareHostPolicy.matches(host: host, domain: cookieDomain)
     }
 
-    private func syncCookiesAndComplete(cookies: [HTTPCookie], success: Bool) {
+    @MainActor
+    private func syncCookiesAndComplete(cookies: [HTTPCookie], success: Bool, host: String) {
         let clearanceCookies = cookies.filter { $0.name == "cf_clearance" }
         for cookie in cookies {
             HTTPCookieStorage.shared.setCookie(cookie)
         }
 
         if success {
-            markHostVerified(challengeHost)
+            markHostVerified(host)
             // The cookie domain is the most reliable scope for replaying clearance. Mark it as
             // well as the exact challenge host so subdomains (www., m., etc.) are covered.
             for cookie in clearanceCookies {
@@ -191,25 +238,60 @@ public final class CloudflareSolver: NSObject, WKNavigationDelegate, @unchecked 
             }
         }
 
-        complete(success: success)
+        finishActiveChallenge(success: success)
     }
 
-    private func complete(success: Bool) {
-        let handler = completionHandler
-        completionHandler = nil
-        handler?(success)
-    }
-
-    private func cancelCurrentSession(notify: Bool) {
+    @MainActor
+    private func finishActiveChallenge(success: Bool) {
         pollTimer?.cancel()
         pollTimer = nil
-        let handler = completionHandler
-        completionHandler = nil
+        challengeGeneration += 1
+
+        let continuation = activeContinuation
+        activeContinuation = nil
         isPresentingSolverSheet = false
         activeWebView = nil
         statusMessage = nil
-        if notify {
-            handler?(false)
+        challengeHost = ""
+
+        continuation?.resume(returning: success)
+        startNextQueuedChallenge()
+    }
+
+    /// Resolves queued requests that the newly verified host already covers, then presents the
+    /// next distinct host. Requests for the same host never make the user solve two sheets.
+    @MainActor
+    private func startNextQueuedChallenge() {
+        while let next = pendingChallenges.first {
+            pendingChallenges.removeFirst()
+            if isHostVerified(next.host) {
+                next.continuation.resume(returning: true)
+                continue
+            }
+            beginChallenge(origin: next.url, host: next.host, continuation: next.continuation)
+            return
+        }
+    }
+
+    @MainActor
+    private func cancelAllChallenges() {
+        pollTimer?.cancel()
+        pollTimer = nil
+        challengeGeneration += 1
+
+        let active = activeContinuation
+        activeContinuation = nil
+        let pending = pendingChallenges
+        pendingChallenges.removeAll()
+
+        isPresentingSolverSheet = false
+        activeWebView = nil
+        statusMessage = nil
+        challengeHost = ""
+
+        active?.resume(returning: false)
+        for challenge in pending {
+            challenge.continuation.resume(returning: false)
         }
     }
 }

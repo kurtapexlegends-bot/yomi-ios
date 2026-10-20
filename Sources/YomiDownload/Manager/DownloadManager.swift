@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Observation
 import YomiCore
 
@@ -59,6 +60,9 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate, @unche
 
     private var backgroundSession: URLSession!
     private let queueLock = NSLock()
+    private let pathMonitor = NWPathMonitor()
+    private let pathMonitorQueue = DispatchQueue(label: "com.yomi.downloader.network")
+    private var hasWiFi = false
 
     private override init() {
         super.init()
@@ -66,6 +70,39 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate, @unche
         config.isDiscretionary = false
         config.sessionSendsLaunchEvents = true
         self.backgroundSession = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            guard let self else { return }
+            let onWiFi = path.status == .satisfied
+                && (path.usesInterfaceType(.wifi) || path.usesInterfaceType(.wiredEthernet))
+            self.queueLock.lock()
+            let becameAvailable = onWiFi && !self.hasWiFi
+            self.hasWiFi = onWiFi
+            self.queueLock.unlock()
+
+            if becameAvailable {
+                self.processNextJobIfNeeded()
+            }
+        }
+        pathMonitor.start(queue: pathMonitorQueue)
+    }
+
+    /// True while the queue is intentionally waiting for a Wi-Fi connection.
+    public var isWaitingForWiFi: Bool {
+        queueLock.lock()
+        defer { queueLock.unlock() }
+        return Self.wifiOnlyEnabled
+            && !hasWiFi
+            && queue.contains { $0.status == .queued }
+    }
+
+    /// Re-evaluates the queue, for example immediately after the user turns off Wi-Fi-only mode.
+    public func processQueuedJobs() {
+        processNextJobIfNeeded()
+    }
+
+    private static var wifiOnlyEnabled: Bool {
+        (UserDefaults.standard.object(forKey: "yomi.download.wifiOnly") as? Bool) ?? true
     }
 
     /// Enqueues chapters for background download.
@@ -233,6 +270,11 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate, @unche
     private func processNextJobIfNeeded() {
         queueLock.lock()
         guard !isProcessing else {
+            queueLock.unlock()
+            return
+        }
+
+        if Self.wifiOnlyEnabled && !hasWiFi {
             queueLock.unlock()
             return
         }

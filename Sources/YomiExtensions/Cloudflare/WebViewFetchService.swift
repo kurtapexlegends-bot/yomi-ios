@@ -59,6 +59,9 @@ public final class WebViewFetchService: NSObject, WKNavigationDelegate, @uncheck
     /// main actor because WebKit work is already hopped to it.
     public func fetchData(_ request: URLRequest) async -> Data? {
         guard let result = await enqueue(request),
+              let status = result["status"] as? Int,
+              (200..<400).contains(status),
+              result["isCloudflare"] as? Bool != true,
               let base64 = result["bodyBase64"] as? String,
               let data = Data(base64Encoded: base64),
               !data.isEmpty else {
@@ -114,6 +117,14 @@ public final class WebViewFetchService: NSObject, WKNavigationDelegate, @uncheck
 
         guard await loadOrigin(origin) else { return nil }
         return await evaluateFetch(request: request)
+    }
+
+    /// Drops the hidden browser so the next fetch starts from a clean page and cookie state.
+    @MainActor
+    public func resetSession() {
+        webView?.stopLoading()
+        webView = nil
+        loadedOrigin = nil
     }
 
     // MARK: - Origin loading
@@ -296,7 +307,17 @@ public final class WebViewFetchService: NSObject, WKNavigationDelegate, @uncheck
         let headers = object["headers"] as? [String: String] ?? [:]
         let base64 = object["bodyBase64"] as? String ?? ""
         let bodyData = Data(base64Encoded: base64) ?? Data()
-        let body = String(data: bodyData, encoding: .utf8) ?? ""
+        // Decoding a multi-megabyte image as UTF-8 just to run challenge detection caused a
+        // significant memory spike in the reader. Only textual responses need a body string;
+        // image callers consume `bodyBase64` directly.
+        let contentType = (headers["content-type"] ?? "").lowercased()
+        let isTextual = contentType.isEmpty
+            || contentType.contains("text")
+            || contentType.contains("json")
+            || contentType.contains("xml")
+            || contentType.contains("javascript")
+            || contentType.contains("x-www-form-urlencoded")
+        let body = isTextual ? (String(data: bodyData, encoding: .utf8) ?? "") : ""
         let isChallenge = CloudflareResponseDetector.isChallenge(
             statusCode: status,
             headers: headers,

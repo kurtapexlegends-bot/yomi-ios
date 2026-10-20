@@ -78,6 +78,9 @@ public struct SettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .onAppear { refreshStorage() }
+        .onChange(of: downloadOnlyOnWifi) { _, isEnabled in
+            if !isEnabled { downloadManager.processQueuedJobs() }
+        }
         .fileImporter(
             isPresented: $isShowingFileImporter,
             allowedContentTypes: [.item],
@@ -113,7 +116,7 @@ public struct SettingsView: View {
         }
         .alert("Reset Cloudflare Sessions", isPresented: $isShowingResetWebDataAlert) {
             Button("Reset", role: .destructive) {
-                CloudflareSolver.shared.clearVerifiedHosts()
+                CloudflareSolver.shared.resetVerification()
                 statusToast = "Cloudflare sessions will be verified again when needed."
             }
             Button("Cancel", role: .cancel) {}

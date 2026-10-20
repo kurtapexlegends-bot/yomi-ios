@@ -186,7 +186,12 @@ public struct DownloadsView: View {
 
     private var queueSection: some View {
         VStack(alignment: .leading, spacing: 9) {
-            YomiSectionHeader("Download Queue", subtitle: "\(activeJobs.count) job(s)")
+            YomiSectionHeader(
+                "Download Queue",
+                subtitle: downloadManager.isWaitingForWiFi
+                    ? "Waiting for Wi-Fi · \(activeJobs.count) job(s)"
+                    : "\(activeJobs.count) job(s)"
+            )
 
             VStack(spacing: 8) {
                 ForEach(activeJobs) { job in

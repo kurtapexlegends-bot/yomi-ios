@@ -29,6 +29,7 @@ public struct ReaderContainerView: View {
     @State private var isBookmarked: Bool = false
     @State private var pageLoadGeneration: Int = 0
     @State private var pageLoadTask: Task<Void, Never>?
+    @State private var completedChapterID: Int64?
 
     private let chapterRepo = ChapterRepository()
     private let trackRepo = TrackRepository()
@@ -63,31 +64,68 @@ public struct ReaderContainerView: View {
     public var body: some View {
         readerContent
             .statusBarHidden(!isHUDVisible)
-        .onAppear {
-            loadChapters()
-            loadPages()
-        }
-        .onDisappear {
-            pageLoadTask?.cancel()
-        }
-        .onChange(of: viewer) { _, newValue in
-            UserDefaults.standard.set(newValue.rawValue, forKey: "yomi.reader.defaultViewer")
-        }
-        .onChange(of: isAutocropEnabled) { _, newValue in
-            UserDefaults.standard.set(newValue, forKey: "yomi.reader.autocrop")
-        }
-        .onChange(of: isInvertColorsEnabled) { _, newValue in
-            UserDefaults.standard.set(newValue, forKey: "yomi.reader.invert")
-        }
-        .onChange(of: customBrightness) { _, newValue in
-            UserDefaults.standard.set(Double(newValue), forKey: "yomi.reader.brightness")
-        }
-        .onChange(of: tapZoneLayout) { _, newValue in
-            UserDefaults.standard.set(newValue.rawValue, forKey: "yomi.reader.tapZones")
-        }
-        .onChange(of: currentPage) { _, newPage in
-            handlePageChanged(to: newPage)
-        }
+            .onAppear {
+                loadChapters()
+                loadPages()
+            }
+            .onDisappear {
+                pageLoadTask?.cancel()
+            }
+            .onChange(of: currentPage) { _, newPage in
+                handlePageChanged(to: newPage)
+            }
+    }
+
+    /// Persist reader preferences at the point of change instead of stacking seven `onChange`
+    /// modifiers on the body (which made Swift's type checker time out on complex reader views).
+    private var viewerPreference: Binding<MangaViewer> {
+        Binding(
+            get: { self.viewer },
+            set: { newValue in
+                self.viewer = newValue
+                UserDefaults.standard.set(newValue.rawValue, forKey: "yomi.reader.defaultViewer")
+            }
+        )
+    }
+
+    private var autocropPreference: Binding<Bool> {
+        Binding(
+            get: { self.isAutocropEnabled },
+            set: { newValue in
+                self.isAutocropEnabled = newValue
+                UserDefaults.standard.set(newValue, forKey: "yomi.reader.autocrop")
+            }
+        )
+    }
+
+    private var invertPreference: Binding<Bool> {
+        Binding(
+            get: { self.isInvertColorsEnabled },
+            set: { newValue in
+                self.isInvertColorsEnabled = newValue
+                UserDefaults.standard.set(newValue, forKey: "yomi.reader.invert")
+            }
+        )
+    }
+
+    private var brightnessPreference: Binding<CGFloat> {
+        Binding(
+            get: { self.customBrightness },
+            set: { newValue in
+                self.customBrightness = newValue
+                UserDefaults.standard.set(Double(newValue), forKey: "yomi.reader.brightness")
+            }
+        )
+    }
+
+    private var tapZonePreference: Binding<TapZoneLayout> {
+        Binding(
+            get: { self.tapZoneLayout },
+            set: { newValue in
+                self.tapZoneLayout = newValue
+                UserDefaults.standard.set(newValue.rawValue, forKey: "yomi.reader.tapZones")
+            }
+        )
     }
 
     @ViewBuilder
@@ -107,11 +145,18 @@ public struct ReaderContainerView: View {
         }
     }
 
+    /// `.defaultViewer` means "use this title's saved layout", not the reader controller's
+    /// internal vertical fallback. Resolve it before handing the mode to UIKit.
+    private var effectiveViewer: MangaViewer {
+        guard viewer == .defaultViewer else { return viewer }
+        return manga.viewer == .defaultViewer ? .vertical : manga.viewer
+    }
+
     private var readerSurface: some View {
         ReaderBridgeView(
             pages: pages,
             source: localSource ?? extensionManager.getSource(id: manga.sourceId),
-            viewer: viewer,
+            viewer: effectiveViewer,
             isAutocropEnabled: isAutocropEnabled,
             isInvertColorsEnabled: isInvertColorsEnabled,
             customBrightness: customBrightness,
@@ -137,11 +182,11 @@ public struct ReaderContainerView: View {
             currentPage: $currentPage,
             totalPages: pages.count,
             isHUDVisible: $isHUDVisible,
-            viewer: $viewer,
-            isAutocropEnabled: $isAutocropEnabled,
-            isInvertColorsEnabled: $isInvertColorsEnabled,
-            customBrightness: $customBrightness,
-            tapZoneLayout: $tapZoneLayout,
+            viewer: viewerPreference,
+            isAutocropEnabled: autocropPreference,
+            isInvertColorsEnabled: invertPreference,
+            customBrightness: brightnessPreference,
+            tapZoneLayout: tapZonePreference,
             isBookmarked: $isBookmarked,
             chapters: allChapters,
             currentChapterId: chapter.id,
@@ -283,13 +328,23 @@ public struct ReaderContainerView: View {
     }
 
     private func handlePageChanged(to newPage: Int) {
-        guard let chId = chapter.id else { return }
+        // `selectChapter` resets the page to zero before the next page list exists. Without this
+        // guard that reset looked like "finished page 0" and marked the new chapter read.
+        guard !isLoading, !pages.isEmpty, let chId = chapter.id else { return }
         let isComplete = newPage >= pages.count - 1
+        if isComplete {
+            guard completedChapterID != chId else { return }
+            completedChapterID = chId
+        }
 
         Task {
             if !privacyManager.isIncognitoMode {
                 try? await chapterRepo.updateProgress(chapterId: chId, lastPageRead: newPage, isRead: isComplete)
                 cloudSync.recordProgress(mangaUrl: manga.url, chapterUrl: chapter.url, page: newPage, isRead: isComplete)
+
+                if isComplete {
+                    autoDownloadNextChapter()
+                }
 
                 // Sync the linked AniList entry rather than guessing a media ID from the chapter number.
                 if isComplete,
@@ -332,9 +387,29 @@ public struct ReaderContainerView: View {
         }
     }
 
+    /// Honors Settings → Downloads → "Auto-download next chapter" when a chapter is finished.
+    private func autoDownloadNextChapter() {
+        guard UserDefaults.standard.bool(forKey: "yomi.download.autoNext"),
+              let mangaId = manga.id,
+              let source = localSource ?? extensionManager.getSource(id: manga.sourceId),
+              let index = allChapters.firstIndex(where: { $0.id == chapter.id || $0.url == chapter.url }),
+              index > 0 else {
+            return
+        }
+
+        let nextChapter = allChapters[index - 1]
+        guard !nextChapter.read,
+              let chapterId = nextChapter.id,
+              !downloadManager.isChapterDownloaded(chapterId: chapterId, mangaId: mangaId) else {
+            return
+        }
+        downloadManager.enqueue(manga: manga, chapters: [nextChapter], source: source)
+    }
+
     private func selectChapter(_ selected: Chapter) {
         chapter = selected
         isBookmarked = selected.bookmark
+        completedChapterID = nil
         currentPage = 0
         loadPages()
         if !allChapters.contains(where: { $0.id == selected.id }) {
