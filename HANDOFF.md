@@ -5,24 +5,28 @@ Last updated: 2026-10-20
 ## Where things stand
 
 - Repo: `C:\SIDEPROJECTS\yomi-ios`, branch `main`
-- Current app & CI commit: `b198464` (`fix(sources): add referer cover image caching, fix cloudflare base64 fetch, and add floating tab bar`)
-- Latest CI for `b198464`: **green (success)**, run `39368964223` (14m 41s)
-- Latest IPA: `C:\Users\acost\Desktop\Yomi.ipa` and `C:\Users\acost\Desktop\Yomi-b198464.ipa`
-- Verified Simulator Smoke: `com.yomiapp.reader` launched with zero crashes, smoke evidence captured in `01-floating-tabbar.png`.
+- Current app & CI commit: `a29a5d4` (`fix(cloudflare): resolve challenge loading & stale cookie loop, sanitize webkit fetch, and overhaul extensions store UI`)
+- Latest CI for `a29a5d4`: **green (success)**, run `39372392476` (18m 02s)
+- Latest IPA: `C:\Users\acost\Desktop\Yomi.ipa` and `C:\Users\acost\Desktop\Yomi-a29a5d4.ipa`
+- Verified Simulator Smoke: `com.yomiapp.reader` launched with zero crashes, smoke evidence captured in `01-verified-build.png`.
 - Working tree: clean
 
-## Key Upgrades in b198464
+## Key Upgrades in a29a5d4
 
-- **Cover Image Loading & Memory Management**:
-  - Implemented `YomiImageCache` with custom URLSession that injects required `Referer` headers for manga CDN hosts (`readdetectiveconan.com` -> `https://mangapill.com/`, `mangakakalot.gg` -> `https://www.mangakakalot.gg/`) and standard mobile Safari `User-Agent`.
-  - Added automatic downsampling (`CGImageSourceCreateThumbnailAtIndex`) to thumbnail resolution (240x340), reducing per-cover RAM usage by ~94% (from ~8MB down to ~500KB) and eliminating memory bloat.
-  - Automatic cache clearing on system memory warnings (`UIApplication.didReceiveMemoryWarningNotification`).
-- **Cloudflare & MangaKakalot Bypass Robustness**:
-  - Fixed Base64 string generation in `WebViewFetchService.swift` using `btoa(binary)`, allowing HTML and chapter page responses to decode properly without dropping the body.
-  - Added navigation auto-detection in `CloudflareSolver.swift` and guaranteed cookie sync + completion when the user taps "Done", preventing users from ever getting trapped in verification loops.
-- **Floating Tab Navigation**:
-  - Replaced docked edge-to-edge bottom bar with an elevated floating capsule bar (`YomiTabBar`) with ultra-thin glass material blur, 0.5pt hairline border, spring-animated active tab indicators, and ambient drop shadow.
-  - Inset scroll views with `.safeAreaInset(edge: .bottom)` so list items never get occluded.
+- **Cloudflare Antibot & MangaKakalot Permanent Resolution**:
+  - **Challenge URL Preservation**: `CloudflareHostPolicy.challengeURL(from:)` now loads the exact challenged webpage path (e.g. `/manga-list/hot-manga?page=1`) instead of resetting to root `/` where no Turnstile challenge existed.
+  - **Visible Challenge Canvas**: `CloudflareWebView` is now configured with `isOpaque = true` and `backgroundColor = .white`. Cloudflare’s `#313131` text and Turnstile checkboxes were previously invisible against a pitch-black transparent webview.
+  - **Authentic WebKit UA**: Removed hardcoded static `iPhone OS 17_5` spoofing in WKWebView that triggered Cloudflare Turnstile bot detection mismatches on iOS 18/different runtimes.
+  - **Stale Cookie Purge & Expiration Checks**: `CloudflareSolver.beginChallenge` now asynchronously deletes any stale clearance cookies for the target host before presenting the sheet. `isClearanceCookie` validates `cookie.expiresDate == nil || cookie.expiresDate! > Date()`, eliminating the loop where an expired cookie triggered an immediate false-success dismissal.
+  - **Sanitized WebKit Transport**: `WebViewFetchService.evaluateFetch` now filters out forbidden browser fetch headers (`User-Agent`, `Cookie`, `Cookie2`, `Host`, `Origin`, `Referer`), preventing WebKit `TypeError` rejections.
+  - **Image Fallback**: `YomiImageCache.loadImage` automatically falls back to `WebViewFetchService.shared.fetchData` if direct `URLSession` requests receive HTTP status >= 400.
+
+- **Extensions Store Clean Redesign & Modularity**:
+  - **Decomposed Architecture**: Extracted `ExtensionStoreComponents.swift` (242 lines) and slimmed `ExtensionStoreView.swift` from 605 lines down to 383 lines (strict compliance with `<500 lines` rule).
+  - **Zero Promotional Slop**: Removed the three giant stacked banner cards (`storeHeader`, `installedCard`, `repositoriesCard`) that pushed the list below the fold.
+  - **Unified Top Bar**: Features a high-efficiency search bar with quick Repositories (`shippingbox.fill`) and Refresh (`arrow.clockwise`) action buttons.
+  - **Compact Filter Row**: Smooth horizontal filter chips (`All`, `Installed`, `Updates`, `18+`) with an integrated language selector pill.
+  - **High-Signal Rows**: Apple App Store-style cards with crisp 42x42 icons, domain labels, version tags, and minimal `Get` / `Add` / `Update` / `Installed` capsule status buttons.
 
 ## Visual & Architectural Redesign Overhaul (De-Slopify)
 
