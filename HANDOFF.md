@@ -5,11 +5,28 @@ Last updated: 2026-10-20
 ## Where things stand
 
 - Repo: `C:\SIDEPROJECTS\yomi-ios`, branch `main`
-- Current app & CI commit: `f79daea` (`fix(performance): virtualize and paginate extension store, add top-level webkit bypass and fix mangakakalot selectors`)
-- Latest CI for `f79daea`: **green (success)**, run `39375243263` (14m 31s)
-- Latest IPA: `C:\Users\acost\Desktop\Yomi.ipa` and `C:\Users\acost\Desktop\Yomi-f79daea.ipa`
-- Verified Simulator Smoke: `com.yomiapp.reader` launched with zero crashes, smoke evidence captured in `01-extensions-performance-build.png`.
+- Current app & CI commit: `c9f96ba` (`fix(mangakakalot): route to mirror, load dynamic chapter API & set CDN referers`)
+- Latest CI for `c9f96ba`: **green (success)**, run `39420023203` (16m 34s)
+- Latest IPA: `C:\Users\acost\Desktop\Yomi.ipa` and `C:\Users\acost\Desktop\Yomi-c9f96ba.ipa`
+- Verified Simulator Smoke: `com.yomiapp.reader` launched with zero crashes, smoke evidence captured in `01-mangakakalot-verified.png`.
 - Working tree: clean
+
+## Key Upgrades in c9f96ba & MangaKakalot Resolution
+
+- **MangaKakalot Cover & Chapter Images 403 Forbidden Resolved**:
+  - **Root Cause**: MangaKakalot hosts all image thumbnails and chapter pages across external CDN nodes (`img-r1.2xstorage.com`, `img-r2.2xstorage.com`, `storage.waitst.com`). In `YomiImageLoader.swift`, the referer mapping check evaluated `else if host.contains("mangakakalot")`. Because `2xstorage.com` and `storage.waitst.com` do not contain `"mangakakalot"`, it fell through and generated a self-host referer (`Referer: https://img-r1.2xstorage.com/`), which the CDN actively blocked with HTTP 403 Forbidden. Furthermore, 2xstorage requires a strict trailing slash (`/`).
+  - **Fix**: Updated `YomiImageLoader.swift`, `NetworkBridge.swift`, and `JSExtension.swift` to identify `2xstorage`, `waitst`, `mangakakalot`, and `mangakakalove` hosts and supply `Referer: https://www.mangakakalove.com/` (with mandatory trailing slash). Direct requests now return HTTP 200 OK without falling back to WebKit or throwing errors.
+
+- **MangaKakalot Chapters Showing 0 Resolved (Dynamic API Extraction)**:
+  - **Root Cause**: Modern MangaKakalot detail pages no longer render chapter `<a>` tags in static HTML. Instead, they render a skeleton placeholder `<div id="chapter-list-container" class="chapter-list-loading" data-comic-slug="__SLUG__" data-api-url="...">` and fetch chapter arrays asynchronously via an internal JSON API. `ScraperScriptGenerator.swift`'s `getChapterList` statically queried `.row-content-chapter li a, .chapter-list a`, finding 0 elements and returning an empty chapter array ("Source returned no chapters").
+  - **Fix**: Upgraded `getChapterList` in `ScraperScriptGenerator.swift` to extract the manga slug from the URL or container attribute and query `https://www.mangakakalove.com/api/manga/${slug}/chapters?limit=-1`. It parses the JSON array (`data.chapters`), extracting full chapter titles, numbers, upload dates, and URLs, while preserving DOM scraping as a resilient fallback.
+
+- **MangaKakalot Search 403 Cloudflare Bypass**:
+  - **Root Cause**: `www.mangakakalot.gg` enforced aggressive Cloudflare Turnstile mitigation on all search and detail queries, returning HTTP 403 with `cf-mitigated: challenge`. Simultaneously, search endpoints on the official mirror (`mangakakalove.com`) required a valid `Referer: https://www.mangakakalove.com/` header; queries without a referer triggered Cloudflare 403 mitigation.
+  - **Fix**: Re-routed MangaKakalot extensions and `NetworkBridge.swift` canonicalization directly to `https://www.mangakakalove.com`. Supplied `Referer: BASE_URL + "/"` across all scraper fetch calls. Probes confirm searches, categories, detail pages, and chapter reader pages now return HTTP 200 OK cleanly without Cloudflare interstitial interruptions.
+
+- **Automatic Self-Healing for Installed Extensions**:
+  - `ExtensionManager.reloadInstalledSources()` detects existing MangaKakalot installations, upgrades their saved `baseUrl` to `https://www.mangakakalove.com`, updates the JSON manifest on disk, and regenerates the active JavaScript scraper script so existing users immediately receive the fix without reinstalling.
 
 ## Key Upgrades in f79daea & Current Session
 
