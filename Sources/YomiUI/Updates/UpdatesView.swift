@@ -17,6 +17,7 @@ public struct UpdatesView: View {
     @State private var downloadedIDs: Set<Int64> = []
     @State private var readerRequest: ReaderRequest?
     @State private var detailManga: Manga?
+    @State private var downloadToRemove: ChapterUpdateItem?
 
     private let chapterRepo = ChapterRepository()
     private let mangaRepo = MangaRepository()
@@ -115,6 +116,23 @@ public struct UpdatesView: View {
                 Task { await loadUpdates() }
             }) { request in
                 ReaderContainerView(manga: request.manga, chapter: request.chapter)
+            }
+            .confirmationDialog(
+                "Remove downloaded chapter?",
+                isPresented: Binding(
+                    get: { downloadToRemove != nil },
+                    set: { if !$0 { downloadToRemove = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                if let item = downloadToRemove {
+                    Button("Delete Download", role: .destructive) {
+                        removeDownload(item)
+                    }
+                }
+                Button("Keep", role: .cancel) { downloadToRemove = nil }
+            } message: {
+                Text("The chapter stays available from its source.")
             }
             .task { await loadUpdates() }
         }
@@ -238,19 +256,21 @@ public struct UpdatesView: View {
     // MARK: - Filters
 
     private var filterShelf: some View {
-        HStack(spacing: 8) {
-            ForEach(UpdateFilter.allCases, id: \.self) { option in
-                YomiFilterChip(
-                    title: option.title,
-                    isSelected: filter == option,
-                    icon: option.icon
-                ) {
-                    withAnimation(.easeOut(duration: 0.18)) {
-                        filter = option
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(UpdateFilter.allCases, id: \.self) { option in
+                    YomiFilterChip(
+                        title: option.title,
+                        isSelected: filter == option,
+                        icon: option.icon
+                    ) {
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            filter = option
+                        }
                     }
                 }
             }
-            Spacer(minLength: 0)
+            .padding(.horizontal, 1)
         }
     }
 
@@ -369,10 +389,13 @@ public struct UpdatesView: View {
             } label: {
                 Label(item.read ? "Mark as Unread" : "Mark as Read", systemImage: item.read ? "envelope.badge" : "checkmark.circle")
             }
-            Button {
+            Button(role: downloadedIDs.contains(item.chapterId) ? .destructive : nil) {
                 toggleDownload(item)
             } label: {
-                Label(downloadedIDs.contains(item.chapterId) ? "Downloaded" : "Download Chapter", systemImage: "arrow.down.circle")
+                Label(
+                    downloadedIDs.contains(item.chapterId) ? "Remove Download" : "Download Chapter",
+                    systemImage: downloadedIDs.contains(item.chapterId) ? "trash" : "arrow.down.circle"
+                )
             }
             Button {
                 openDetail(for: item)
@@ -481,13 +504,29 @@ public struct UpdatesView: View {
     }
 
     private func toggleDownload(_ item: ChapterUpdateItem) {
-        guard !downloadedIDs.contains(item.chapterId) else { return }
+        if downloadedIDs.contains(item.chapterId) {
+            downloadToRemove = item
+            return
+        }
         Task {
             guard let manga = try? await mangaRepo.getManga(id: item.mangaId),
                   let chapter = try? await chapterRepo.getChapter(id: item.chapterId),
                   let source = extensionManager.getSource(id: item.sourceId) else { return }
             downloadManager.enqueue(manga: manga, chapters: [chapter], source: source)
         }
+    }
+
+    private func removeDownload(_ item: ChapterUpdateItem) {
+        do {
+            try downloadManager.deleteDownloadedChapter(
+                chapterId: item.chapterId,
+                mangaId: item.mangaId
+            )
+            downloadedIDs.remove(item.chapterId)
+        } catch {
+            print("[Updates] Failed to delete download: \(error)")
+        }
+        downloadToRemove = nil
     }
 
     private func openReader(for item: ChapterUpdateItem) {

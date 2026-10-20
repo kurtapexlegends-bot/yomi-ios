@@ -38,15 +38,18 @@ public final class WebViewFetchService: NSObject, WKNavigationDelegate, @uncheck
 
     /// Runs a WebKit fetch from a background extension queue. Returns nil on the main thread to
     /// avoid deadlocking the main run loop, or when WebKit cannot complete the request.
-    public static func fetchSync(_ request: URLRequest, timeout: TimeInterval = 28) -> [String: Any]? {
+    public static func fetchSync(_ request: URLRequest, timeout: TimeInterval = 36) -> [String: Any]? {
         guard !Thread.isMainThread else { return nil }
         return runSync(request: request, timeout: timeout)
     }
 
     /// Fetches raw bytes through WebKit. Used for protected page images that reject URLSession.
-    public static func fetchDataSync(_ request: URLRequest, timeout: TimeInterval = 30) -> Data? {
+    public static func fetchDataSync(_ request: URLRequest, timeout: TimeInterval = 36) -> Data? {
         guard !Thread.isMainThread else { return nil }
         guard let result = runSync(request: request, timeout: timeout),
+              let status = result["status"] as? Int,
+              (200..<400).contains(status),
+              result["isCloudflare"] as? Bool != true,
               let base64 = result["bodyBase64"] as? String,
               let data = Data(base64Encoded: base64),
               !data.isEmpty else {
@@ -376,8 +379,8 @@ private final class LockedFlag: @unchecked Sendable {
 public final class WebViewFetchService: NSObject, @unchecked Sendable {
     public static let shared = WebViewFetchService()
     private override init() { super.init() }
-    public static func fetchSync(_ request: URLRequest, timeout: TimeInterval = 28) -> [String: Any]? { nil }
-    public static func fetchDataSync(_ request: URLRequest, timeout: TimeInterval = 30) -> Data? { nil }
+    public static func fetchSync(_ request: URLRequest, timeout: TimeInterval = 36) -> [String: Any]? { nil }
+    public static func fetchDataSync(_ request: URLRequest, timeout: TimeInterval = 36) -> Data? { nil }
     public func fetchData(_ request: URLRequest) async -> Data? { nil }
     public func enqueue(_ request: URLRequest) async -> [String: Any]? { nil }
 }

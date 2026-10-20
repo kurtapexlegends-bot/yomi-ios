@@ -305,7 +305,7 @@ public struct MangaDetailView: View {
         HStack(spacing: 9) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(YomiTheme.warning)
-            Text("This source is not installed. Cached chapters and downloads remain readable.")
+            Text("This source is not installed. Downloaded chapters remain readable, but new chapters cannot be fetched.")
                 .font(YomiFont.caption)
                 .foregroundStyle(YomiTheme.textSecondary)
                 .lineSpacing(2)

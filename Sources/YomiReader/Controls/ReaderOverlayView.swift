@@ -71,12 +71,26 @@ public struct ReaderOverlayView: View {
     private var pageCount: Int { max(1, totalPages) }
     private var safePage: Int { min(max(0, currentPage), max(0, pageCount - 1)) }
 
-    private var chapterPosition: String {
-        guard let currentChapterId,
-              let index = chapters.firstIndex(where: { $0.id == currentChapterId || $0.stableId == "ch_\(currentChapterId)" }) else {
-            return chapterTitle
+    private var currentChapterIndex: Int? {
+        guard let currentChapterId else { return nil }
+        return chapters.firstIndex {
+            $0.id == currentChapterId || $0.stableId == "ch_\(currentChapterId)"
         }
+    }
+
+    private var chapterPosition: String {
+        guard let index = currentChapterIndex else { return chapterTitle }
         return "Chapter \(chapters.count - index) of \(chapters.count)"
+    }
+
+    private var canGoToNextChapter: Bool {
+        guard let index = currentChapterIndex else { return false }
+        return index > 0
+    }
+
+    private var canGoToPreviousChapter: Bool {
+        guard let index = currentChapterIndex else { return false }
+        return index < chapters.count - 1
     }
 
     public var body: some View {
@@ -204,6 +218,8 @@ public struct ReaderOverlayView: View {
                     .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .disabled(!canGoToPreviousChapter)
+                .opacity(canGoToPreviousChapter ? 1 : 0.38)
 
                 Button {
                     isShowingChapterList = true
@@ -241,6 +257,8 @@ public struct ReaderOverlayView: View {
                     .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .disabled(!canGoToNextChapter)
+                .opacity(canGoToNextChapter ? 1 : 0.38)
             }
         }
         .padding(.horizontal, 14)

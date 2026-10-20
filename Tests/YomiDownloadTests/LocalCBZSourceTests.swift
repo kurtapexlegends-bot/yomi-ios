@@ -33,6 +33,28 @@ final class LocalCBZSourceTests: XCTestCase {
         }
     }
 
+    func testIncrementalCBZWriterProducesReadableArchive() async throws {
+        let archiveURL = makeTempArchiveURL()
+        try FileManager.default.createDirectory(at: archiveURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: archiveURL.deletingLastPathComponent()) }
+
+        let chapter = Chapter(mangaId: 1, url: "/chapter/incremental", name: "Chapter Incremental")
+        let manga = Manga(sourceId: 1, url: "/manga/incremental", title: "Incremental Manga")
+        let pageBytes = [Data("first".utf8), Data("second".utf8)]
+
+        let writer = try CBZWriter(destinationURL: archiveURL, manga: manga, chapter: chapter)
+        for bytes in pageBytes {
+            try writer.appendImageData(bytes)
+        }
+        try writer.finish()
+
+        let source = try LocalCBZSource(archiveURL: archiveURL)
+        XCTAssertEqual(source.pages.count, pageBytes.count)
+        let firstPage = try XCTUnwrap(source.pages.first)
+        let data = try await source.getImageData(page: firstPage)
+        XCTAssertEqual(data, pageBytes[0])
+    }
+
     func testLocalCBZSourceExtractsExactPageData() async throws {
         let archiveURL = makeTempArchiveURL()
         try FileManager.default.createDirectory(at: archiveURL.deletingLastPathComponent(), withIntermediateDirectories: true)

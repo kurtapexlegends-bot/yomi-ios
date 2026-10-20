@@ -2,6 +2,74 @@ import Foundation
 import ZIPFoundation
 import YomiCore
 
+/// Incrementally writes a .cbz so downloads never retain every page image in memory.
+public final class CBZWriter {
+    private var archive: Archive?
+    private let destinationURL: URL
+    private let manga: Manga
+    private let chapter: Chapter
+    private var pageCount: Int = 0
+
+    public init(destinationURL: URL, manga: Manga, chapter: Chapter) throws {
+        self.destinationURL = destinationURL
+        self.manga = manga
+        self.chapter = chapter
+
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            try fileManager.removeItem(at: destinationURL)
+        }
+        do {
+            archive = try Archive(url: destinationURL, accessMode: .create)
+        } catch {
+            throw YomiError.storageError("Failed to initialize CBZ archive at \(destinationURL.path): \(error.localizedDescription)")
+        }
+    }
+
+    public func appendImageData(_ data: Data) throws {
+        guard let archive else {
+            throw YomiError.storageError("CBZ writer is already closed")
+        }
+        let fileName = String(format: "%03d.jpg", pageCount)
+        let count = UInt32(data.count)
+        try archive.addEntry(
+            with: fileName,
+            type: .file,
+            uncompressedSize: count,
+            compressionMethod: .none
+        ) { position, size in
+            let start = Int(position)
+            let length = Int(size)
+            return data.subdata(in: start..<(start + length))
+        }
+        pageCount += 1
+    }
+
+    /// Adds ComicInfo.xml last (so it can report the final page count) and closes the archive.
+    public func finish() throws {
+        guard let archive else { return }
+        let comicInfoXML = CBZArchiver.makeComicInfoXML(
+            manga: manga,
+            chapter: chapter,
+            pageCount: pageCount
+        )
+        if let xmlData = comicInfoXML.data(using: .utf8) {
+            let count = UInt32(xmlData.count)
+            try archive.addEntry(
+                with: "ComicInfo.xml",
+                type: .file,
+                uncompressedSize: count,
+                compressionMethod: .deflate
+            ) { position, size in
+                let start = Int(position)
+                let length = Int(size)
+                return xmlData.subdata(in: start..<(start + length))
+            }
+        }
+        self.archive = nil
+    }
+}
+
 /// Packages downloaded chapter images and ComicInfo.xml metadata into standard .cbz zip archives.
 public enum CBZArchiver {
     
@@ -25,18 +93,11 @@ public enum CBZArchiver {
         }
 
         // Generate ComicInfo.xml
-        let comicInfoXML = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <ComicInfo xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-            <Title>\(escapeXML(chapter.name))</Title>
-            <Series>\(escapeXML(manga.title))</Series>
-            <Number>\(chapter.chapterNumber)</Number>
-            <Writer>\(escapeXML(manga.author ?? ""))</Writer>
-            <Penciller>\(escapeXML(manga.artist ?? ""))</Penciller>
-            <Summary>\(escapeXML(manga.description ?? ""))</Summary>
-            <PageCount>\(pageDataList.count)</PageCount>
-        </ComicInfo>
-        """
+        let comicInfoXML = makeComicInfoXML(
+            manga: manga,
+            chapter: chapter,
+            pageCount: pageDataList.count
+        )
 
         if let xmlData = comicInfoXML.data(using: .utf8) {
             let count = UInt32(xmlData.count)
@@ -102,6 +163,21 @@ public enum CBZArchiver {
             data.append(chunk)
         }
         return data
+    }
+
+    static func makeComicInfoXML(manga: Manga, chapter: Chapter, pageCount: Int) -> String {
+        """
+        <?xml version="1.0" encoding="utf-8"?>
+        <ComicInfo xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+            <Title>\(escapeXML(chapter.name))</Title>
+            <Series>\(escapeXML(manga.title))</Series>
+            <Number>\(chapter.chapterNumber)</Number>
+            <Writer>\(escapeXML(manga.author ?? ""))</Writer>
+            <Penciller>\(escapeXML(manga.artist ?? ""))</Penciller>
+            <Summary>\(escapeXML(manga.description ?? ""))</Summary>
+            <PageCount>\(pageCount)</PageCount>
+        </ComicInfo>
+        """
     }
 
     private static func escapeXML(_ str: String) -> String {

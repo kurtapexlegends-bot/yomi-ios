@@ -63,6 +63,8 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate, @unche
     private let pathMonitor = NWPathMonitor()
     private let pathMonitorQueue = DispatchQueue(label: "com.yomi.downloader.network")
     private var hasWiFi = false
+    @ObservationIgnored private var activeTask: Task<Void, Never>?
+    @ObservationIgnored private var activeJobID: UUID?
 
     private override init() {
         super.init()
@@ -205,7 +207,11 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate, @unche
     public func deleteAllDownloadedChapters() throws {
         queueLock.lock()
         queue.removeAll()
+        let task = activeTask
+        activeTask = nil
+        activeJobID = nil
         queueLock.unlock()
+        task?.cancel()
 
         guard let root = downloadsRootURL(), FileManager.default.fileExists(atPath: root.path) else { return }
         try FileManager.default.removeItem(at: root)
@@ -237,8 +243,12 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate, @unche
     /// Cancels and removes a job from the queue.
     public func cancel(jobId: UUID) {
         queueLock.lock()
-        defer { queueLock.unlock() }
+        let isActive = activeJobID == jobId
         queue.removeAll { $0.id == jobId }
+        let task = isActive ? activeTask : nil
+        queueLock.unlock()
+
+        task?.cancel()
     }
 
     /// Removes completed and failed jobs while keeping active work untouched.
@@ -288,17 +298,36 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate, @unche
         self.isProcessing = true
         let currentJob = queue[nextIndex]
         queue[nextIndex].status = .downloading(progress: 0, current: 0, total: 0)
-        queueLock.unlock()
-
-        Task {
+        activeJobID = currentJob.id
+        activeTask = Task {
             await executeDownload(job: currentJob)
         }
+        queueLock.unlock()
     }
 
     private func executeDownload(job: DownloadJob) async {
+        var stagingURL: URL?
         do {
             let pages = try await job.source.getPageList(chapter: job.chapter)
             let total = pages.count
+            guard total > 0 else {
+                throw YomiError.networkError("The source returned no pages for this chapter.")
+            }
+
+            guard let chId = job.chapter.id, let mId = job.manga.id,
+                  let targetURL = getDownloadedCBZURL(chapterId: chId, mangaId: mId) else {
+                throw YomiError.storageError("Invalid storage path")
+            }
+
+            let dirURL = targetURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
+
+            // Write to a staging archive and publish only after the last page and ComicInfo.xml
+            // are on disk. This avoids both a chapter-sized `[Data]` buffer and half-written
+            // archives being treated as completed downloads.
+            let partURL = targetURL.appendingPathExtension("part")
+            stagingURL = partURL
+            let writer = try CBZWriter(destinationURL: partURL, manga: job.manga, chapter: job.chapter)
 
             DownloadActivityController.shared.startActivity(
                 mangaTitle: job.manga.title,
@@ -307,10 +336,11 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate, @unche
                 remainingCount: queue.filter { $0.status == .queued }.count
             )
 
-            var pageDataList: [Data] = []
             for (index, page) in pages.enumerated() {
+                try Task.checkCancellation()
                 let data = try await job.source.getImageData(page: page)
-                pageDataList.append(data)
+                try Task.checkCancellation()
+                try writer.appendImageData(data)
 
                 let progress = Float(index + 1) / Float(total)
                 updateJobStatus(jobId: job.id, status: .downloading(progress: progress, current: index + 1, total: total))
@@ -324,23 +354,33 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate, @unche
                 )
             }
 
-            // Write CBZ
-            guard let chId = job.chapter.id, let mId = job.manga.id,
-                  let targetURL = getDownloadedCBZURL(chapterId: chId, mangaId: mId) else {
-                throw YomiError.storageError("Invalid storage path")
-            }
+            try Task.checkCancellation()
+            try writer.finish()
+            try Task.checkCancellation()
 
-            let dirURL = targetURL.deletingLastPathComponent()
-            try FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
-            try CBZArchiver.createCBZ(at: targetURL, manga: job.manga, chapter: job.chapter, pageDataList: pageDataList)
+            if FileManager.default.fileExists(atPath: targetURL.path) {
+                try FileManager.default.removeItem(at: targetURL)
+            }
+            try FileManager.default.moveItem(at: partURL, to: targetURL)
+            stagingURL = nil
 
             updateJobStatus(jobId: job.id, status: .completed(path: targetURL.path))
         } catch {
-            updateJobStatus(jobId: job.id, status: .failed(error: error.localizedDescription))
+            if let stagingURL,
+               FileManager.default.fileExists(atPath: stagingURL.path) {
+                try? FileManager.default.removeItem(at: stagingURL)
+            }
+            if !Task.isCancelled {
+                updateJobStatus(jobId: job.id, status: .failed(error: error.localizedDescription))
+            }
         }
 
         queueLock.lock()
         self.isProcessing = false
+        if activeJobID == job.id {
+            activeJobID = nil
+            activeTask = nil
+        }
         queueLock.unlock()
 
         processNextJobIfNeeded()

@@ -25,6 +25,10 @@ public struct ReaderContainerView: View {
     @State private var isLoading: Bool = true
     @State private var errorMessage: String? = nil
     @State private var localSource: (any SourceProtocol)? = nil
+    /// Set after an in-reader source migration. The immutable `manga` value still carries the
+    /// old source ID, so page loading and chapter navigation must prefer this live source.
+    @State private var sourceOverride: (any SourceProtocol)? = nil
+    @State private var migratedManga: Manga? = nil
     @State private var allChapters: [Chapter] = []
     @State private var isBookmarked: Bool = false
     @State private var pageLoadGeneration: Int = 0
@@ -155,7 +159,7 @@ public struct ReaderContainerView: View {
     private var readerSurface: some View {
         ReaderBridgeView(
             pages: pages,
-            source: localSource ?? extensionManager.getSource(id: manga.sourceId),
+            source: sourceOverride ?? localSource ?? extensionManager.getSource(id: manga.sourceId),
             viewer: effectiveViewer,
             isAutocropEnabled: isAutocropEnabled,
             isInvertColorsEnabled: isInvertColorsEnabled,
@@ -296,13 +300,14 @@ public struct ReaderContainerView: View {
                     self.currentPage = max(0, min(requestedChapter.lastPageRead, local.pages.count - 1))
                     self.errorMessage = nil
                     self.isLoading = false
+                    self.handlePageChanged(to: self.currentPage)
                     return
                 }
             }
 
             // Fetch remote pages from the source.
             do {
-                if let src = extensionManager.getSource(id: manga.sourceId) {
+                if let src = sourceOverride ?? extensionManager.getSource(id: manga.sourceId) {
                     let fetchedPages = try await src.getPageList(chapter: requestedChapter)
                     guard isCurrent() else { return }
                     if !fetchedPages.isEmpty {
@@ -324,6 +329,7 @@ public struct ReaderContainerView: View {
                 self.errorMessage = error.localizedDescription
             }
             self.isLoading = false
+            self.handlePageChanged(to: self.currentPage)
         }
     }
 
@@ -337,25 +343,31 @@ public struct ReaderContainerView: View {
             completedChapterID = chId
         }
 
+        // Snapshot the current chapter: progress writes happen after awaits, and the user can
+        // switch chapters while they are in flight.
+        let chapterUrl = chapter.url
+        let chapterNumber = chapter.chapterNumber
+        let mangaUrl = migratedManga?.url ?? manga.url
+
         Task {
             if !privacyManager.isIncognitoMode {
                 try? await chapterRepo.updateProgress(chapterId: chId, lastPageRead: newPage, isRead: isComplete)
-                cloudSync.recordProgress(mangaUrl: manga.url, chapterUrl: chapter.url, page: newPage, isRead: isComplete)
+                cloudSync.recordProgress(mangaUrl: mangaUrl, chapterUrl: chapterUrl, page: newPage, isRead: isComplete)
 
-                if isComplete {
-                    autoDownloadNextChapter()
+                if isComplete, chapter.id == chId {
+                    autoDownloadNextChapter(completedChapterId: chId)
                 }
 
                 // Sync the linked AniList entry rather than guessing a media ID from the chapter number.
                 if isComplete,
                    AniListClient.shared.isLoggedIn,
-                   chapter.chapterNumber.isFinite,
+                   chapterNumber.isFinite,
                    let mangaId = manga.id,
                    let track = try? await trackRepo.getTrack(
                        mangaId: mangaId,
                        syncId: TrackerServiceType.aniList.rawValue
                    ) {
-                    let progress = max(track.lastChapterRead, chapter.chapterNumber)
+                    let progress = max(track.lastChapterRead, chapterNumber)
                     do {
                         try await AniListClient.shared.updateProgress(
                             mediaId: track.remoteId,
@@ -388,10 +400,11 @@ public struct ReaderContainerView: View {
     }
 
     /// Honors Settings → Downloads → "Auto-download next chapter" when a chapter is finished.
-    private func autoDownloadNextChapter() {
-        guard UserDefaults.standard.bool(forKey: "yomi.download.autoNext"),
+    private func autoDownloadNextChapter(completedChapterId: Int64) {
+        guard chapter.id == completedChapterId,
+              UserDefaults.standard.bool(forKey: "yomi.download.autoNext"),
               let mangaId = manga.id,
-              let source = localSource ?? extensionManager.getSource(id: manga.sourceId),
+              let source = sourceOverride ?? localSource ?? extensionManager.getSource(id: manga.sourceId),
               let index = allChapters.firstIndex(where: { $0.id == chapter.id || $0.url == chapter.url }),
               index > 0 else {
             return
@@ -403,7 +416,7 @@ public struct ReaderContainerView: View {
               !downloadManager.isChapterDownloaded(chapterId: chapterId, mangaId: mangaId) else {
             return
         }
-        downloadManager.enqueue(manga: manga, chapters: [nextChapter], source: source)
+        downloadManager.enqueue(manga: migratedManga ?? manga, chapters: [nextChapter], source: source)
     }
 
     private func selectChapter(_ selected: Chapter) {
@@ -457,15 +470,28 @@ public struct ReaderContainerView: View {
             do {
                 let pillSource = MangaPillSource()
                 let results = try await pillSource.searchManga(query: manga.title, filters: [], page: 1)
-                if let target = results.mangas.first {
+                let normalizedTitle = manga.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                let exactMatch = results.mangas.first {
+                    $0.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalizedTitle
+                }
+                if let target = exactMatch ?? results.mangas.first {
                     let tool = SourceMigrationTool(mangaRepo: MangaRepository(), chapterRepo: chapterRepo)
                     _ = try await tool.migrate(manga: manga, toTarget: target, targetSource: pillSource)
-                    if let newChapters = try? await chapterRepo.getChapters(forMangaId: manga.id ?? 0),
+
+                    if let mangaId = manga.id,
+                       let newChapters = try? await chapterRepo.getChapters(forMangaId: mangaId),
                        let firstCh = newChapters.first(where: { !$0.read }) ?? newChapters.first {
                         await MainActor.run {
+                            var migrated = target
+                            migrated.id = manga.id
+                            self.migratedManga = migrated
+                            self.sourceOverride = pillSource
+                            self.allChapters = newChapters
                             self.chapter = firstCh
+                            self.isBookmarked = firstCh.bookmark
+                            self.completedChapterID = nil
                             self.currentPage = 0
-                            loadPages()
+                            self.loadPages()
                         }
                         return
                     }
