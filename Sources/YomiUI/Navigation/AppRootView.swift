@@ -6,30 +6,36 @@ public enum AppTab: String, CaseIterable, Identifiable {
     case library = "Library"
     case updates = "Updates"
     case history = "History"
-    case browse = "Browse"
-    case more = "More"
+    case sources = "Sources"
+    case settings = "Settings"
 
     public var id: String { rawValue }
 
     public var iconName: String {
         switch self {
-        case .library: return "books.vertical.fill"
-        case .updates: return "bolt.fill"
-        case .history: return "clock.arrow.circlepath"
-        case .browse: return "safari.fill"
-        case .more: return "square.grid.2x2.fill"
+        case .library: return "books.vertical"
+        case .updates: return "bell"
+        case .history: return "clock"
+        case .sources: return "safari"
+        case .settings: return "gearshape"
         }
     }
 
-    public var shortTitle: String {
+    public var selectedIconName: String {
         switch self {
-        case .library: return "Library"
-        case .updates: return "Updates"
-        case .history: return "History"
-        case .browse: return "Browse"
-        case .more: return "More"
+        case .library: return "books.vertical.fill"
+        case .updates: return "bell.fill"
+        case .history: return "clock.fill"
+        case .sources: return "safari.fill"
+        case .settings: return "gearshape.fill"
         }
     }
+
+    public var shortTitle: String { rawValue }
+
+    // Backwards-compatible aliases
+    public static var browse: AppTab { .sources }
+    public static var more: AppTab { .settings }
 }
 
 /// Root application view switching between the iPhone tab experience and iPadOS sidebar.
@@ -93,10 +99,10 @@ public struct AppRootView: View {
                 .tag(AppTab.history)
 
             BrowseView()
-                .tag(AppTab.browse)
+                .tag(AppTab.sources)
 
-            MoreView()
-                .tag(AppTab.more)
+            SettingsView()
+                .tag(AppTab.settings)
         }
         #if os(iOS)
         .toolbar(.hidden, for: .tabBar)
@@ -116,7 +122,7 @@ public struct AppRootView: View {
                         Text(tab.rawValue)
                             .font(YomiFont.body.weight(.semibold))
                     } icon: {
-                        Image(systemName: tab.iconName)
+                        Image(systemName: selectedTab == tab ? tab.selectedIconName : tab.iconName)
                             .foregroundStyle(selectedTab == tab ? YomiTheme.accentStrong : YomiTheme.textSecondary)
                     }
                 }
@@ -141,8 +147,8 @@ public struct AppRootView: View {
         case .library: LibraryView()
         case .updates: UpdatesView()
         case .history: HistoryView()
-        case .browse: BrowseView()
-        case .more: MoreView()
+        case .sources: BrowseView()
+        case .settings: SettingsView()
         }
     }
 }
@@ -160,26 +166,16 @@ public struct YomiTabBar: View {
         HStack(spacing: 0) {
             ForEach(AppTab.allCases) { tab in
                 Button {
-                    withAnimation(.easeOut(duration: 0.18)) {
-                        selection = tab
-                    }
+                    selection = tab
                 } label: {
-                    VStack(spacing: 4) {
-                        ZStack {
-                            if selection == tab {
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(YomiTheme.accentSoft)
-                                    .frame(width: 38, height: 26)
-                            }
-                            Image(systemName: tab.iconName)
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(selection == tab ? YomiTheme.accentStrong : YomiTheme.textTertiary)
-                                .symbolEffect(.bounce, value: selection == tab)
-                        }
-                        .frame(height: 26)
+                    VStack(spacing: 3) {
+                        Image(systemName: selection == tab ? tab.selectedIconName : tab.iconName)
+                            .font(.system(size: 19, weight: selection == tab ? .semibold : .regular))
+                            .foregroundStyle(selection == tab ? YomiTheme.textPrimary : YomiTheme.textTertiary)
+                            .frame(height: 24)
 
                         Text(tab.shortTitle)
-                            .font(.system(size: 9, weight: selection == tab ? .bold : .medium, design: .rounded))
+                            .font(.system(size: 10, weight: selection == tab ? .semibold : .regular))
                             .foregroundStyle(selection == tab ? YomiTheme.textPrimary : YomiTheme.textTertiary)
                     }
                     .frame(maxWidth: .infinity)
@@ -190,13 +186,12 @@ public struct YomiTabBar: View {
                 .accessibilityAddTraits(selection == tab ? .isSelected : [])
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
+        .padding(.top, 7)
+        .padding(.bottom, 2)
         .background(
             ZStack {
                 Rectangle().fill(.ultraThinMaterial)
-                Rectangle().fill(YomiTheme.background.opacity(0.82))
+                Rectangle().fill(Color.black.opacity(0.88))
             }
             .overlay(alignment: .top) {
                 Rectangle().fill(YomiTheme.border).frame(height: 0.5)

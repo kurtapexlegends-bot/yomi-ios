@@ -6,19 +6,23 @@ import SwiftUI
 /// surfaces, and semantic status colors. Views should compose these tokens rather than
 /// inventing per-screen colors.
 public enum YomiTheme {
-    public static let pureBlack = Color(red: 0.016, green: 0.016, blue: 0.024)
+    /// True OLED Black (#000000) canvas where pixels physically shut off.
+    public static let pureBlack = Color.black
     public static let background = pureBlack
 
-    public static let surface = Color(red: 0.070, green: 0.070, blue: 0.090)
-    public static let elevatedSurface = Color(red: 0.105, green: 0.105, blue: 0.132)
-    public static let sunkenSurface = Color(red: 0.040, green: 0.040, blue: 0.055)
+    /// Neutral architectural dark surfaces (no muddy blue or purple tints).
+    public static let surface = Color(red: 0.067, green: 0.067, blue: 0.075) // #111113
+    public static let elevatedSurface = Color(red: 0.110, green: 0.110, blue: 0.118) // #1C1C1E
+    public static let sunkenSurface = Color(red: 0.035, green: 0.035, blue: 0.040) // #09090A
 
-    public static let border = Color.white.opacity(0.085)
-    public static let borderStrong = Color.white.opacity(0.16)
+    /// Subtle hairline strokes replacing thick border outlines.
+    public static let border = Color.white.opacity(0.065)
+    public static let borderStrong = Color.white.opacity(0.12)
 
+    /// Restrained electric violet (#7C5CFC) strictly for focal interaction points.
     public static let accent = Color(red: 0.486, green: 0.361, blue: 0.988)
-    public static let accentStrong = Color(red: 0.580, green: 0.470, blue: 1.000)
-    public static let accentSoft = Color(red: 0.486, green: 0.361, blue: 0.988).opacity(0.16)
+    public static let accentStrong = Color(red: 0.545, green: 0.435, blue: 0.992)
+    public static let accentSoft = Color(red: 0.486, green: 0.361, blue: 0.988).opacity(0.14)
 
     public static let unreadBadge = Color(red: 0.420, green: 0.580, blue: 1.000)
     public static let downloadBadge = Color(red: 0.290, green: 0.840, blue: 0.520)
@@ -26,27 +30,28 @@ public enum YomiTheme {
     public static let warning = Color(red: 1.000, green: 0.720, blue: 0.300)
     public static let danger = Color(red: 1.000, green: 0.370, blue: 0.420)
 
-    public static let textPrimary = Color(red: 0.960, green: 0.960, blue: 0.980)
-    public static let textSecondary = Color(red: 0.610, green: 0.610, blue: 0.670)
-    public static let textTertiary = Color(red: 0.420, green: 0.420, blue: 0.480)
+    public static let textPrimary = Color.white
+    public static let textSecondary = Color(red: 0.60, green: 0.60, blue: 0.65)
+    public static let textTertiary = Color(red: 0.38, green: 0.38, blue: 0.42)
 
-    public static let cornerRadiusSmall: CGFloat = 10
-    public static let cornerRadiusMedium: CGFloat = 16
-    public static let cornerRadiusLarge: CGFloat = 22
+    public static let cornerRadiusSmall: CGFloat = 8
+    public static let cornerRadiusMedium: CGFloat = 12
+    public static let cornerRadiusLarge: CGFloat = 18
 
-    public static let contentPadding: CGFloat = 20
-    public static let cardSpacing: CGFloat = 14
+    public static let contentPadding: CGFloat = 16
+    public static let cardSpacing: CGFloat = 12
 }
 
+/// Editorial San Francisco typography with crisp hierarchy and zero cartoonish rounded edges.
 public enum YomiFont {
-    public static let screenTitle = Font.system(size: 32, weight: .bold, design: .rounded)
-    public static let screenSubtitle = Font.system(size: 13, weight: .medium, design: .rounded)
-    public static let sectionTitle = Font.system(size: 19, weight: .bold, design: .rounded)
-    public static let cardTitle = Font.system(size: 15, weight: .semibold, design: .rounded)
-    public static let body = Font.system(size: 14, weight: .regular, design: .rounded)
-    public static let caption = Font.system(size: 12, weight: .medium, design: .rounded)
-    public static let micro = Font.system(size: 10, weight: .bold, design: .rounded)
-    public static let number = Font.system(size: 13, weight: .semibold, design: .monospaced)
+    public static let screenTitle = Font.system(size: 28, weight: .bold)
+    public static let screenSubtitle = Font.system(size: 13, weight: .regular)
+    public static let sectionTitle = Font.system(size: 18, weight: .semibold)
+    public static let cardTitle = Font.system(size: 14, weight: .semibold)
+    public static let body = Font.system(size: 14, weight: .regular)
+    public static let caption = Font.system(size: 12, weight: .regular)
+    public static let micro = Font.system(size: 10, weight: .semibold)
+    public static let number = Font.system(size: 13, weight: .semibold).monospacedDigit()
 }
 
 public struct GlassCardModifier: ViewModifier {

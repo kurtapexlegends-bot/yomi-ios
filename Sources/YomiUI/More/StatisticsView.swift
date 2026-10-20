@@ -120,7 +120,7 @@ public struct StatisticsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         YomiEyebrow("TOTAL READ")
                         Text("\(readChapters)")
-                            .font(.system(size: 52, weight: .bold, design: .rounded))
+                            .font(.system(size: 52, weight: .bold))
                             .foregroundStyle(YomiTheme.textPrimary)
                             .contentTransition(.numericText())
                     }
@@ -161,7 +161,7 @@ public struct StatisticsView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
             Text(value)
-                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .font(.system(size: 22, weight: .bold))
                 .foregroundStyle(YomiTheme.textPrimary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)

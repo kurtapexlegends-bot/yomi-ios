@@ -9,15 +9,27 @@ public final class AppRouter {
 
     public init() {}
 
-    public func openBrowse() {
-        selectedTab = .browse
-    }
-
     public func openLibrary() {
         selectedTab = .library
     }
 
     public func openUpdates() {
         selectedTab = .updates
+    }
+
+    public func openHistory() {
+        selectedTab = .history
+    }
+
+    public func openSources() {
+        selectedTab = .sources
+    }
+
+    public func openBrowse() {
+        selectedTab = .sources
+    }
+
+    public func openSettings() {
+        selectedTab = .settings
     }
 }

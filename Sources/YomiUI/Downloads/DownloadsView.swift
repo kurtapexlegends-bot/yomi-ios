@@ -3,7 +3,7 @@ import YomiCore
 import YomiDatabase
 import YomiDownload
 
-/// Download center with active transfer progress and a fully offline library.
+/// Minimalist offline download manager with queue controls and storage breakdown.
 public struct DownloadsView: View {
     @State private var downloadManager = DownloadManager.shared
     @State private var groups: [DownloadedGroup] = []
@@ -39,12 +39,10 @@ public struct DownloadsView: View {
 
     public var body: some View {
         ZStack {
-            YomiBackground()
+            YomiBackground(showsGlow: false)
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
-                    summaryCard
-
                     if !activeJobs.isEmpty {
                         queueSection
                     }
@@ -58,12 +56,12 @@ public struct DownloadsView: View {
                     offlineSection
 
                     if totalChapters > 0 {
-                        storageCard
+                        storageSummary
                     }
                 }
                 .padding(.horizontal, YomiTheme.contentPadding)
                 .padding(.top, 10)
-                .padding(.bottom, 34)
+                .padding(.bottom, 32)
             }
             .scrollIndicators(.hidden)
             .refreshable { await loadDownloads() }
@@ -96,7 +94,7 @@ public struct DownloadsView: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(YomiTheme.textSecondary)
                 }
             }
@@ -115,7 +113,7 @@ public struct DownloadsView: View {
             Button("Delete All Downloads", role: .destructive) { deleteAll() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes \(totalChapters) offline chapter(s) from this device. Library entries and reading progress stay intact.")
+            Text("This removes \(totalChapters) offline chapters. Library entries and reading history stay on device.")
         }
         .yomiFullScreenCover(item: $readerRequest, onDismiss: {
             Task { await loadDownloads() }
@@ -124,76 +122,18 @@ public struct DownloadsView: View {
         }
     }
 
-    // MARK: - Summary
-
-    private var summaryCard: some View {
-        YomiCard(padding: 17) {
-            VStack(alignment: .leading, spacing: 13) {
-                HStack(spacing: 12) {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 46, height: 46)
-                        .background(YomiTheme.accent)
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Offline library")
-                            .font(YomiFont.cardTitle)
-                            .foregroundStyle(YomiTheme.textPrimary)
-                        Text("Read without a connection or source")
-                            .font(YomiFont.caption)
-                            .foregroundStyle(YomiTheme.textSecondary)
-                    }
-                    Spacer()
-                }
-
-                HStack(spacing: 0) {
-                    summaryStat(value: "\(totalChapters)", label: "Chapters", tint: YomiTheme.accentStrong)
-                    summaryDivider
-                    summaryStat(value: "\(groups.count)", label: "Titles", tint: YomiTheme.success)
-                    summaryDivider
-                    summaryStat(value: formattedBytes(totalBytes), label: "Storage", tint: YomiTheme.warning)
-                    summaryDivider
-                    summaryStat(value: "\(activeJobs.count)", label: "Active", tint: YomiTheme.unreadBadge)
-                }
-            }
-        }
-    }
-
-    private func summaryStat(value: String, label: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(value)
-                .font(.system(size: 18, weight: .bold, design: .rounded))
-                .foregroundStyle(tint)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            Text(label)
-                .font(YomiFont.micro)
-                .foregroundStyle(YomiTheme.textTertiary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var summaryDivider: some View {
-        Rectangle()
-            .fill(YomiTheme.border)
-            .frame(width: 1, height: 27)
-            .padding(.horizontal, 7)
-    }
-
     // MARK: - Queue
 
     private var queueSection: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 8) {
             YomiSectionHeader(
                 "Download Queue",
                 subtitle: downloadManager.isWaitingForWiFi
-                    ? "Waiting for Wi-Fi · \(activeJobs.count) job(s)"
-                    : "\(activeJobs.count) job(s)"
+                    ? "Waiting for Wi-Fi · \(activeJobs.count) queued"
+                    : "\(activeJobs.count) active"
             )
 
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
                 ForEach(activeJobs) { job in
                     queueRow(job)
                 }
@@ -225,13 +165,13 @@ public struct DownloadsView: View {
             statusTint = YomiTheme.textSecondary
         }
 
-        return VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 11) {
-                YomiCoverImage(urlString: job.manga.effectiveThumbnailUrl, title: job.manga.title, cornerRadius: 8)
-                    .frame(width: 40, height: 56)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                YomiCoverImage(urlString: job.manga.effectiveThumbnailUrl, title: job.manga.title, cornerRadius: 6)
+                    .frame(width: 36, height: 50)
                     .clipped()
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(job.manga.title)
                         .font(YomiFont.cardTitle)
                         .foregroundStyle(YomiTheme.textPrimary)
@@ -252,11 +192,11 @@ public struct DownloadsView: View {
                         downloadManager.retry(jobId: job.id)
                     } label: {
                         Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(YomiTheme.accentStrong)
-                            .frame(width: 32, height: 32)
+                            .frame(width: 28, height: 28)
                             .background(YomiTheme.accentSoft)
-                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                            .clipShape(Circle())
                     }
                     .buttonStyle(.plain)
                 }
@@ -265,9 +205,9 @@ public struct DownloadsView: View {
                     downloadManager.cancel(jobId: job.id)
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(YomiTheme.textTertiary)
-                        .frame(width: 30, height: 30)
+                        .frame(width: 28, height: 28)
                         .background(YomiTheme.elevatedSurface)
                         .clipShape(Circle())
                 }
@@ -275,40 +215,41 @@ public struct DownloadsView: View {
             }
 
             if let progress {
-                YomiProgressBar(value: Double(progress), tint: YomiTheme.accentStrong, height: 4)
+                YomiProgressBar(value: Double(progress), tint: YomiTheme.accentStrong, height: 2)
             }
         }
-        .padding(12)
+        .padding(10)
         .background(YomiTheme.surface)
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(YomiTheme.border, lineWidth: 1)
+            RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusSmall, style: .continuous)
+                .stroke(YomiTheme.border, lineWidth: 0.5)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusSmall, style: .continuous))
     }
 
     // MARK: - Offline library
 
     private var offlineSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            YomiSectionHeader("Downloaded Titles", subtitle: "\(groups.count) title(s)")
+            YomiSectionHeader("Downloaded Titles", subtitle: "\(groups.count) title(s) · \(formattedBytes(totalBytes))")
 
             if isLoading && groups.isEmpty {
                 VStack(spacing: 8) {
                     ForEach(0..<3, id: \.self) { _ in
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        Rectangle()
                             .fill(YomiTheme.surface)
-                            .frame(height: 88)
+                            .frame(height: 72)
+                            .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusSmall))
                     }
                 }
             } else if groups.isEmpty {
                 YomiEmptyState(
                     icon: "arrow.down.circle",
-                    title: "No Downloads Yet",
-                    message: "Open a title and tap the download button to keep chapters on this device for offline reading."
+                    title: "No Downloads",
+                    message: "Downloaded chapters are stored as standard CBZ archives and can be read fully offline."
                 )
             } else {
-                LazyVStack(spacing: 9) {
+                LazyVStack(spacing: 8) {
                     ForEach(groups) { group in
                         downloadGroupCard(group)
                     }
@@ -328,14 +269,14 @@ public struct DownloadsView: View {
                     YomiCoverImage(
                         urlString: group.manga.effectiveThumbnailUrl,
                         title: group.manga.title,
-                        cornerRadius: 10
+                        cornerRadius: 6
                     )
-                    .frame(width: 48, height: 68)
+                    .frame(width: 44, height: 62)
                     .clipped()
                 }
                 .buttonStyle(.plain)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(group.manga.title)
                         .font(YomiFont.cardTitle)
                         .foregroundStyle(YomiTheme.textPrimary)
@@ -345,21 +286,18 @@ public struct DownloadsView: View {
                         .font(YomiFont.caption)
                         .foregroundStyle(YomiTheme.textSecondary)
 
-                    HStack(spacing: 6) {
-                        YomiTag("OFFLINE", tint: YomiTheme.success)
-                        if let resume = group.resumeChapter {
-                            Text(resume.displayTitle)
-                                .font(YomiFont.micro)
-                                .foregroundStyle(YomiTheme.textTertiary)
-                                .lineLimit(1)
-                        }
+                    if let resume = group.resumeChapter {
+                        Text("Resume: \(resume.displayTitle)")
+                            .font(YomiFont.micro)
+                            .foregroundStyle(YomiTheme.accentStrong)
+                            .lineLimit(1)
                     }
                 }
 
                 Spacer(minLength: 2)
 
                 Button {
-                    withAnimation(.easeOut(duration: 0.18)) {
+                    withAnimation(.easeOut(duration: 0.16)) {
                         if isExpanded {
                             expandedGroups.remove(group.id)
                         } else {
@@ -368,59 +306,41 @@ public struct DownloadsView: View {
                     }
                 } label: {
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(YomiTheme.textSecondary)
-                        .frame(width: 32, height: 32)
+                        .frame(width: 28, height: 28)
                         .background(YomiTheme.elevatedSurface)
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
             }
-            .padding(12)
-
-            if let resume = group.resumeChapter {
-                Button {
-                    readerRequest = ReaderRequest(manga: group.manga, chapter: resume)
-                } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 10, weight: .bold))
-                        Text("Read \(resume.displayTitle)")
-                            .lineLimit(1)
-                        Spacer()
-                    }
-                }
-                .buttonStyle(YomiPrimaryButtonStyle())
-                .padding(.horizontal, 12)
-                .padding(.bottom, 11)
-            }
+            .padding(10)
 
             if isExpanded {
-                Divider().overlay(YomiTheme.border)
+                VStack(spacing: 0) {
+                    Divider().overlay(YomiTheme.border)
 
-                VStack(spacing: 2) {
                     ForEach(group.chapters) { item in
-                        HStack(spacing: 9) {
+                        HStack(spacing: 10) {
                             Button {
                                 readerRequest = ReaderRequest(manga: group.manga, chapter: item.chapter)
                             } label: {
-                                HStack(spacing: 9) {
-                                    Image(systemName: item.chapter.read ? "checkmark.circle.fill" : "circle")
-                                        .font(.system(size: 14, weight: .semibold))
+                                HStack(spacing: 8) {
+                                    Image(systemName: item.chapter.read ? "checkmark.circle" : "circle")
+                                        .font(.system(size: 11))
                                         .foregroundStyle(item.chapter.read ? YomiTheme.success : YomiTheme.textTertiary)
 
-                                    Text(item.chapter.displayTitle)
-                                        .font(YomiFont.caption)
-                                        .foregroundStyle(YomiTheme.textPrimary)
-                                        .lineLimit(1)
-
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(item.chapter.displayTitle)
+                                            .font(YomiFont.body)
+                                            .foregroundStyle(item.chapter.read ? YomiTheme.textSecondary : YomiTheme.textPrimary)
+                                            .lineLimit(1)
+                                        Text(formattedBytes(item.byteCount))
+                                            .font(YomiFont.micro)
+                                            .foregroundStyle(YomiTheme.textTertiary)
+                                    }
                                     Spacer()
-
-                                    Text(formattedBytes(item.byteCount))
-                                        .font(YomiFont.micro)
-                                        .foregroundStyle(YomiTheme.textTertiary)
                                 }
-                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
 
@@ -428,57 +348,49 @@ public struct DownloadsView: View {
                                 delete(item)
                             } label: {
                                 Image(systemName: "trash")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(YomiTheme.textTertiary)
-                                    .frame(width: 28, height: 28)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(YomiTheme.danger)
                             }
                             .buttonStyle(.plain)
                         }
-                        .padding(.horizontal, 12)
+                        .padding(.horizontal, 14)
                         .padding(.vertical, 8)
                     }
                 }
-                .padding(.vertical, 5)
+                .background(YomiTheme.sunkenSurface)
             }
         }
         .background(YomiTheme.surface)
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(YomiTheme.border, lineWidth: 1)
+            RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusSmall, style: .continuous)
+                .stroke(YomiTheme.border, lineWidth: 0.5)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusSmall, style: .continuous))
     }
 
-    private var storageCard: some View {
-        YomiCard(padding: 14) {
-            HStack(spacing: 11) {
-                Image(systemName: "internaldrive.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(YomiTheme.warning)
-                    .frame(width: 36, height: 36)
-                    .background(YomiTheme.warning.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    private var storageSummary: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "internaldrive")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(YomiTheme.textTertiary)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Downloaded storage")
-                        .font(YomiFont.cardTitle)
-                        .foregroundStyle(YomiTheme.textPrimary)
-                    Text("\(formattedBytes(totalBytes)) across \(totalChapters) chapter(s)")
-                        .font(YomiFont.caption)
-                        .foregroundStyle(YomiTheme.textSecondary)
-                }
-                Spacer()
-                Button(role: .destructive) {
-                    isShowingClearConfirmation = true
-                } label: {
-                    Text("Manage")
-                }
-                .buttonStyle(YomiSecondaryButtonStyle())
+            Text("\(formattedBytes(totalBytes)) used across \(totalChapters) chapter(s)")
+                .font(YomiFont.caption)
+                .foregroundStyle(YomiTheme.textSecondary)
+
+            Spacer()
+
+            Button("Delete All") {
+                isShowingClearConfirmation = true
             }
+            .font(YomiFont.caption.weight(.semibold))
+            .foregroundStyle(YomiTheme.danger)
         }
+        .padding(.horizontal, 4)
+        .padding(.top, 4)
     }
 
-    // MARK: - Data
+    // MARK: - Actions
 
     private func loadDownloads() async {
         if groups.isEmpty { isLoading = true }
@@ -546,24 +458,4 @@ public struct DownloadsView: View {
     private func formattedBytes(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
-}
-
-private struct DownloadedGroup: Identifiable {
-    var id: Int64 { manga.id ?? 0 }
-    let manga: Manga
-    let chapters: [DownloadedChapterItem]
-    let byteCount: Int64
-
-    var resumeChapter: Chapter? {
-        chapters.first(where: { !$0.chapter.read && $0.chapter.lastPageRead > 0 })?.chapter
-            ?? chapters.first(where: { !$0.chapter.read })?.chapter
-            ?? chapters.first?.chapter
-    }
-}
-
-private struct DownloadedChapterItem: Identifiable {
-    var id: Int64 { chapter.id ?? 0 }
-    let chapter: Chapter
-    let byteCount: Int64
-    let fileURL: URL
 }

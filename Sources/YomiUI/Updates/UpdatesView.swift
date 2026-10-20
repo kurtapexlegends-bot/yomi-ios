@@ -75,40 +75,81 @@ public struct UpdatesView: View {
     public var body: some View {
         NavigationStack {
             ZStack {
-                YomiBackground()
+                YomiBackground(showsGlow: false)
 
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 18) {
-                        header
+                VStack(spacing: 0) {
+                    if isRefreshing && refreshTotal > 0 {
+                        refreshProgressBar
+                    }
 
-                        if privacyManager.isIncognitoMode {
-                            incognitoBanner
-                        }
+                    filterBar
 
-                        refreshCard
-                        filterShelf
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 16) {
+                            if privacyManager.isIncognitoMode {
+                                incognitoNotice
+                            }
 
-                        if isLoading && updates.isEmpty {
-                            ProgressView()
-                                .tint(YomiTheme.accent)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 40)
-                        } else if filteredUpdates.isEmpty {
-                            emptyState
-                        } else {
-                            ForEach(sections, id: \.title) { section in
-                                updateSection(section)
+                            if isLoading && updates.isEmpty {
+                                ProgressView()
+                                    .tint(YomiTheme.accent)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 40)
+                            } else if filteredUpdates.isEmpty {
+                                emptyState
+                            } else {
+                                ForEach(sections, id: \.title) { section in
+                                    updateSection(section)
+                                }
                             }
                         }
+                        .padding(.horizontal, YomiTheme.contentPadding)
+                        .padding(.top, 12)
+                        .padding(.bottom, 24)
                     }
-                    .padding(.horizontal, YomiTheme.contentPadding)
-                    .padding(.top, 14)
-                    .padding(.bottom, 30)
+                    .scrollIndicators(.hidden)
+                    .refreshable { await refreshUpdatesFromSources() }
                 }
-                .scrollIndicators(.hidden)
-                .refreshable { await refreshUpdatesFromSources() }
             }
-            .yomiNavigationBarHidden()
+            .navigationTitle("Updates")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    if unreadCount > 0 {
+                        Text("\(unreadCount) unread")
+                            .font(YomiFont.caption)
+                            .foregroundStyle(YomiTheme.textSecondary)
+                    }
+                }
+
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if unreadCount > 0 {
+                        Button {
+                            markAllRead()
+                        } label: {
+                            Text("Mark All")
+                                .font(YomiFont.caption.weight(.semibold))
+                                .foregroundStyle(YomiTheme.accentStrong)
+                        }
+                    }
+
+                    Button {
+                        Task { await refreshUpdatesFromSources() }
+                    } label: {
+                        if isRefreshing {
+                            ProgressView()
+                                .tint(YomiTheme.textSecondary)
+                                .scaleEffect(0.65)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                                .foregroundStyle(YomiTheme.textSecondary)
+                        }
+                    }
+                    .disabled(isRefreshing)
+                }
+            }
             .navigationDestination(item: $detailManga) { manga in
                 MangaDetailView(manga: manga)
             }
@@ -138,161 +179,68 @@ public struct UpdatesView: View {
         }
     }
 
-    // MARK: - Header
+    // MARK: - Subviews
 
-    private var header: some View {
-        YomiScreenHeader(title: "Updates", subtitle: headerSubtitle) {
-            HStack(spacing: 8) {
-                if unreadCount > 0 {
-                    Menu {
-                        Button {
-                            markAllRead()
-                        } label: {
-                            Label("Mark All Read", systemImage: "checkmark.circle")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                    }
-                    .buttonStyle(YomiIconButtonStyle())
-                }
-
-                Button {
-                    Task { await refreshUpdatesFromSources() }
-                } label: {
-                    if isRefreshing {
-                        ProgressView()
-                            .tint(YomiTheme.textPrimary)
-                            .scaleEffect(0.7)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                }
-                .buttonStyle(YomiIconButtonStyle(tint: YomiTheme.accentStrong))
-                .disabled(isRefreshing)
-            }
-        }
+    private var refreshProgressBar: some View {
+        YomiProgressBar(
+            value: Double(refreshCompleted) / Double(max(refreshTotal, 1)),
+            tint: YomiTheme.accentStrong,
+            height: 2
+        )
     }
 
-    private var headerSubtitle: String {
-        if isRefreshing && refreshTotal > 0 {
-            return "Checking \(refreshCompleted)/\(refreshTotal) sources"
-        }
-        if let lastRefresh {
-            let formatter = RelativeDateTimeFormatter()
-            formatter.unitsStyle = .abbreviated
-            return "\(unreadCount) unread · checked \(formatter.localizedString(for: lastRefresh, relativeTo: Date()))"
-        }
-        return unreadCount > 0 ? "\(unreadCount) unread chapters" : "All caught up"
-    }
-
-    private var incognitoBanner: some View {
-        HStack(spacing: 9) {
-            Image(systemName: "eye.slash.fill")
-                .font(.system(size: 11, weight: .semibold))
-            Text("Incognito · updates still refresh, but history is not recorded")
-                .font(YomiFont.caption.weight(.semibold))
-            Spacer(minLength: 0)
-        }
-        .foregroundStyle(YomiTheme.accentStrong)
-        .padding(.horizontal, 13)
-        .padding(.vertical, 10)
-        .background(YomiTheme.accentSoft)
-        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-    }
-
-    // MARK: - Refresh card
-
-    private var refreshCard: some View {
-        YomiCard(padding: 16) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 12) {
-                    Image(systemName: isRefreshing ? "arrow.triangle.2.circlepath" : "bolt.fill")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(YomiTheme.accentStrong)
-                        .frame(width: 40, height: 40)
-                        .background(YomiTheme.accentSoft)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(isRefreshing ? "Updating library" : "Library update check")
-                            .font(YomiFont.cardTitle)
-                            .foregroundStyle(YomiTheme.textPrimary)
-                        Text(refreshSubtitle)
-                            .font(YomiFont.caption)
-                            .foregroundStyle(YomiTheme.textSecondary)
-                    }
-                    Spacer()
-
-                    Button {
-                        Task { await refreshUpdatesFromSources() }
-                    } label: {
-                        Text(isRefreshing ? "Working" : "Check now")
-                    }
-                    .buttonStyle(YomiSecondaryButtonStyle())
-                    .disabled(isRefreshing)
-                }
-
-                if isRefreshing && refreshTotal > 0 {
-                    YomiProgressBar(
-                        value: Double(refreshCompleted) / Double(max(refreshTotal, 1)),
-                        tint: YomiTheme.accentStrong,
-                        height: 4
-                    )
-                }
-            }
-        }
-    }
-
-    private var refreshSubtitle: String {
-        if isRefreshing {
-            return refreshTotal > 0 ? "\(refreshCompleted) of \(refreshTotal) titles checked" : "Preparing sources..."
-        }
-        if refreshFailures > 0 {
-            return "\(refreshFailures) source(s) could not be reached. They remain queued for later."
-        }
-        return "Fetch new chapters from every source in your library."
-    }
-
-    // MARK: - Filters
-
-    private var filterShelf: some View {
+    private var filterBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(UpdateFilter.allCases, id: \.self) { option in
                     YomiFilterChip(
                         title: option.title,
                         isSelected: filter == option,
-                        icon: option.icon
+                        icon: nil
                     ) {
-                        withAnimation(.easeOut(duration: 0.18)) {
-                            filter = option
-                        }
+                        filter = option
                     }
                 }
             }
-            .padding(.horizontal, 1)
+            .padding(.horizontal, YomiTheme.contentPadding)
+            .padding(.vertical, 8)
+        }
+        .background(YomiTheme.pureBlack)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(YomiTheme.border).frame(height: 0.5)
         }
     }
 
-    // MARK: - Sections
+    private var incognitoNotice: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "eye.slash.fill")
+                .font(.system(size: 11, weight: .medium))
+            Text("Incognito · Reading history is not saved")
+                .font(YomiFont.caption)
+        }
+        .foregroundStyle(YomiTheme.accentStrong)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(YomiTheme.accentSoft)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
 
     private func updateSection(_ section: UpdateDateSection) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
                 Text(section.title)
-                    .font(YomiFont.sectionTitle)
-                    .foregroundStyle(YomiTheme.textPrimary)
+                    .font(YomiFont.micro)
+                    .tracking(1.2)
+                    .foregroundStyle(YomiTheme.textTertiary)
+                Spacer()
                 Text("\(section.items.count)")
                     .font(YomiFont.micro)
                     .foregroundStyle(YomiTheme.textTertiary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(YomiTheme.surface)
-                    .clipShape(Capsule())
-                Spacer()
             }
+            .padding(.top, 4)
 
-            VStack(spacing: 9) {
+            LazyVStack(spacing: 0) {
                 ForEach(section.items) { item in
                     updateRow(item)
                 }
@@ -308,14 +256,14 @@ public struct UpdatesView: View {
                 YomiCoverImage(
                     urlString: item.effectiveThumbnailUrl,
                     title: item.mangaTitle,
-                    cornerRadius: 10
+                    cornerRadius: 6
                 )
-                .frame(width: 54, height: 78)
+                .frame(width: 44, height: 62)
                 .clipped()
             }
             .buttonStyle(.plain)
 
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(item.mangaTitle)
                     .font(YomiFont.cardTitle)
                     .foregroundStyle(YomiTheme.textPrimary)
@@ -325,16 +273,16 @@ public struct UpdatesView: View {
                     if !item.read {
                         Circle()
                             .fill(YomiTheme.unreadBadge)
-                            .frame(width: 6, height: 6)
+                            .frame(width: 5, height: 5)
                     }
                     Text(item.displayChapterTitle)
                         .font(YomiFont.caption)
-                        .foregroundStyle(item.read ? YomiTheme.textSecondary : YomiTheme.textPrimary)
+                        .foregroundStyle(item.read ? YomiTheme.textTertiary : YomiTheme.textPrimary)
                         .lineLimit(1)
                 }
 
                 HStack(spacing: 6) {
-                    YomiTag(sourceName(for: item.sourceId), tint: YomiTheme.accentStrong)
+                    YomiTag(sourceName(for: item.sourceId), tint: YomiTheme.textTertiary)
                     Text(relativeDate(item))
                         .font(YomiFont.micro)
                         .foregroundStyle(YomiTheme.textTertiary)
@@ -346,16 +294,16 @@ public struct UpdatesView: View {
                 }
             }
 
-            Spacer(minLength: 2)
+            Spacer(minLength: 4)
 
-            VStack(spacing: 8) {
+            HStack(spacing: 8) {
                 Button {
                     openReader(for: item)
                 } label: {
                     Image(systemName: "play.fill")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(.white)
-                        .frame(width: 32, height: 32)
+                        .frame(width: 28, height: 28)
                         .background(YomiTheme.accent)
                         .clipShape(Circle())
                 }
@@ -365,37 +313,27 @@ public struct UpdatesView: View {
                     toggleDownload(item)
                 } label: {
                     Image(systemName: downloadedIDs.contains(item.chapterId) ? "checkmark.circle.fill" : "arrow.down.circle")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 15, weight: .regular))
                         .foregroundStyle(downloadedIDs.contains(item.chapterId) ? YomiTheme.success : YomiTheme.textTertiary)
+                        .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(11)
-        .background(YomiTheme.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous)
-                .stroke(YomiTheme.border, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous))
+        .padding(.vertical, 8)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(YomiTheme.border).frame(height: 0.5)
+        }
         .contextMenu {
-            Button {
-                openReader(for: item)
-            } label: {
-                Label(item.read ? "Re-read Chapter" : "Read Chapter", systemImage: "book.fill")
-            }
             Button {
                 toggleRead(item)
             } label: {
                 Label(item.read ? "Mark as Unread" : "Mark as Read", systemImage: item.read ? "envelope.badge" : "checkmark.circle")
             }
-            Button(role: downloadedIDs.contains(item.chapterId) ? .destructive : nil) {
+            Button {
                 toggleDownload(item)
             } label: {
-                Label(
-                    downloadedIDs.contains(item.chapterId) ? "Remove Download" : "Download Chapter",
-                    systemImage: downloadedIDs.contains(item.chapterId) ? "trash" : "arrow.down.circle"
-                )
+                Label(downloadedIDs.contains(item.chapterId) ? "Delete Download" : "Download Chapter", systemImage: downloadedIDs.contains(item.chapterId) ? "trash" : "arrow.down.circle")
             }
             Button {
                 openDetail(for: item)
@@ -410,8 +348,8 @@ public struct UpdatesView: View {
             icon: "bolt.slash",
             title: filter == .all ? "No Recent Updates" : "Nothing Here",
             message: filter == .all
-                ? "New chapters from titles in your library will appear here. Refresh to check your sources."
-                : "No updates match this filter right now.",
+                ? "New chapters from library manga will appear here. Pull down to check your sources."
+                : "No updates match this filter.",
             actionTitle: filter == .all ? "Check for Updates" : "Show All",
             action: {
                 if filter == .all {
@@ -568,15 +506,15 @@ private struct UpdateDateSection {
     let items: [ChapterUpdateItem]
 }
 
-enum UpdateFilter: String, CaseIterable {
+public enum UpdateFilter: String, CaseIterable {
     case all = "All"
     case unread = "Unread"
     case downloaded = "Offline"
     case bookmarked = "Bookmarked"
 
-    var title: String { rawValue }
+    public var title: String { rawValue }
 
-    var icon: String {
+    public var icon: String {
         switch self {
         case .all: return "bolt.fill"
         case .unread: return "circle.fill"

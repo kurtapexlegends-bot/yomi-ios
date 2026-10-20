@@ -45,7 +45,7 @@ public struct AboutView: View {
 
                 VStack(alignment: .leading, spacing: 5) {
                     Text("YOMI")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .font(.system(size: 26, weight: .bold))
                         .tracking(2)
                         .foregroundStyle(YomiTheme.textPrimary)
                     Text("A native reader for comics and manga, built around the page.")
@@ -122,7 +122,7 @@ public struct AboutView: View {
                 .font(YomiFont.caption)
                 .foregroundStyle(YomiTheme.textTertiary)
             Text("読み")
-                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(YomiTheme.accentStrong.opacity(0.8))
         }
         .frame(maxWidth: .infinity)

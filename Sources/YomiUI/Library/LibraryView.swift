@@ -3,6 +3,7 @@ import YomiCore
 import YomiDatabase
 import YomiDownload
 
+/// Minimalist, cover-forward personal manga library on True OLED Black canvas.
 public struct LibraryView: View {
     @State private var mangas: [Manga] = []
     @State private var categories: [YomiCategory] = []
@@ -14,7 +15,6 @@ public struct LibraryView: View {
     @State private var progressByManga: [Int64: MangaChapterProgress] = [:]
     @State private var lastReadByManga: [Int64: Date] = [:]
     @State private var downloadCounts: [Int64: Int] = [:]
-    @State private var recentHistory: [HistoryItem] = []
 
     @State private var readerRequest: ReaderRequest?
     @State private var mangaToRemove: Manga?
@@ -36,7 +36,7 @@ public struct LibraryView: View {
     private let router = AppRouter.shared
 
     private let gridColumns = [
-        GridItem(.adaptive(minimum: 108, maximum: 158), spacing: 12)
+        GridItem(.adaptive(minimum: 104, maximum: 140), spacing: 12)
     ]
 
     public init() {}
@@ -59,10 +59,6 @@ public struct LibraryView: View {
 
     private var unreadTotal: Int {
         progressByManga.values.reduce(0) { $0 + $1.unreadChapters }
-    }
-
-    private var downloadedTotal: Int {
-        downloadCounts.values.reduce(0, +)
     }
 
     private var displayedMangas: [Manga] {
@@ -111,48 +107,72 @@ public struct LibraryView: View {
     public var body: some View {
         NavigationStack {
             ZStack {
-                YomiBackground()
+                YomiBackground(showsGlow: false)
 
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 18) {
-                        header
+                VStack(spacing: 0) {
+                    categoryBar
 
-                        if privacyManager.isIncognitoMode {
-                            incognitoBanner
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 14) {
+                            if privacyManager.isIncognitoMode {
+                                incognitoNotice
+                            }
+
+                            if isLoading && mangas.isEmpty {
+                                loadingGrid
+                            } else if displayedMangas.isEmpty {
+                                emptyState
+                            } else if isListLayout {
+                                listContent
+                            } else {
+                                gridContent
+                            }
+
+                            if let errorMessage {
+                                Text(errorMessage)
+                                    .font(YomiFont.caption)
+                                    .foregroundStyle(YomiTheme.danger)
+                                    .padding(.top, 8)
+                            }
                         }
-
-                        if !recentHistory.isEmpty && searchQuery.isEmpty && filter == .all {
-                            continueReadingSection
-                        }
-
-                        statsStrip
-                        categoryShelf
-                        filterShelf
-
-                        if isLoading && mangas.isEmpty {
-                            loadingGrid
-                        } else if displayedMangas.isEmpty {
-                            emptyState
-                        } else if isListLayout {
-                            listContent
-                        } else {
-                            gridContent
-                        }
-
-                        if let errorMessage {
-                            Text(errorMessage)
-                                .font(YomiFont.caption)
-                                .foregroundStyle(YomiTheme.danger)
-                        }
+                        .padding(.horizontal, YomiTheme.contentPadding)
+                        .padding(.top, 12)
+                        .padding(.bottom, 24)
                     }
-                    .padding(.horizontal, YomiTheme.contentPadding)
-                    .padding(.top, 14)
-                    .padding(.bottom, 30)
+                    .scrollIndicators(.hidden)
+                    .refreshable { await loadLibrary() }
                 }
-                .scrollIndicators(.hidden)
-                .refreshable { await loadLibrary() }
             }
-            .yomiNavigationBarHidden()
+            .navigationTitle("Library")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    if unreadTotal > 0 {
+                        Text("\(unreadTotal) unread")
+                            .font(YomiFont.caption)
+                            .foregroundStyle(YomiTheme.textSecondary)
+                    }
+                }
+
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        isShowingFilters = true
+                    } label: {
+                        Image(systemName: filter == .all ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                            .foregroundStyle(filter == .all ? YomiTheme.textSecondary : YomiTheme.accentStrong)
+                    }
+
+                    Button {
+                        layoutRaw = isListLayout ? "grid" : "list"
+                    } label: {
+                        Image(systemName: isListLayout ? "square.grid.2x2" : "list.bullet")
+                            .foregroundStyle(YomiTheme.textSecondary)
+                    }
+                }
+            }
+            .searchable(text: $searchQuery, prompt: "Search titles or authors")
             .sheet(isPresented: $isShowingCategoryManager) {
                 NavigationStack { CategoryManagerView() }
                     .presentationDetents([.medium, .large])
@@ -188,179 +208,24 @@ public struct LibraryView: View {
         }
     }
 
-    // MARK: - Header
+    // MARK: - Category Bar
 
-    private var header: some View {
-        YomiScreenHeader(
-            title: "Library",
-            subtitle: greetingSubtitle
-        ) {
-            HStack(spacing: 8) {
-                Button {
-                    isShowingFilters = true
-                } label: {
-                    Image(systemName: "line.3.horizontal.decrease")
-                }
-                .buttonStyle(YomiIconButtonStyle(tint: YomiTheme.textPrimary))
-
-                Button {
-                    withAnimation(.easeOut(duration: 0.18)) {
-                        layoutRaw = isListLayout ? "grid" : "list"
-                    }
-                } label: {
-                    Image(systemName: isListLayout ? "square.grid.2x2" : "list.bullet")
-                }
-                .buttonStyle(YomiIconButtonStyle(tint: YomiTheme.textPrimary))
-            }
-        }
-    }
-
-    private var greetingSubtitle: String {
-        if let selectedCategory {
-            return "\(displayedMangas.count) titles in \(selectedCategory.name)"
-        }
-        if unreadTotal > 0 {
-            return "\(mangas.count) titles · \(unreadTotal) unread chapters"
-        }
-        return "\(mangas.count) titles · all caught up"
-    }
-
-    private var incognitoBanner: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "eye.slash.fill")
-                .font(.system(size: 12, weight: .semibold))
-            Text("Incognito mode · history and tracker writes are paused")
-                .font(YomiFont.caption.weight(.semibold))
-                .lineLimit(2)
-            Spacer(minLength: 4)
-        }
-        .foregroundStyle(YomiTheme.accentStrong)
-        .padding(.horizontal, 13)
-        .padding(.vertical, 10)
-        .background(YomiTheme.accentSoft)
-        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-    }
-
-    // MARK: - Continue reading
-
-    private var continueReadingSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            YomiSectionHeader(
-                "Continue Reading",
-                subtitle: "Pick up exactly where you left off"
-            )
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(recentHistory.prefix(8)) { item in
-                        continueCard(item)
-                    }
-                }
-                .padding(.horizontal, 1)
-            }
-        }
-    }
-
-    private func continueCard(_ item: HistoryItem) -> some View {
-        Button {
-            openReader(for: item)
-        } label: {
-            HStack(spacing: 12) {
-                YomiCoverImage(
-                    urlString: item.effectiveThumbnailUrl,
-                    title: item.mangaTitle,
-                    cornerRadius: 12
-                )
-                .frame(width: 66, height: 94)
-                .clipped()
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Spacer(minLength: 0)
-                    Text(item.mangaTitle)
-                        .font(YomiFont.cardTitle)
-                        .foregroundStyle(YomiTheme.textPrimary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                    Text(item.displayChapterTitle)
-                        .font(YomiFont.caption)
-                        .foregroundStyle(YomiTheme.textSecondary)
-                        .lineLimit(1)
-                    HStack(spacing: 6) {
-                        Image(systemName: "bookmark.fill")
-                            .font(.system(size: 9))
-                        Text(item.lastPageRead > 0 ? "Page \(item.lastPageRead + 1)" : "Start chapter")
-                            .font(YomiFont.micro)
-                    }
-                    .foregroundStyle(YomiTheme.accentStrong)
-                    Spacer(minLength: 0)
-                }
-                .frame(width: 130, alignment: .leading)
-            }
-            .padding(10)
-            .frame(width: 252, height: 114)
-            .background(YomiTheme.surface)
-            .overlay(
-                RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous)
-                    .stroke(YomiTheme.border, lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous))
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - Stats
-
-    private var statsStrip: some View {
-        HStack(spacing: 10) {
-            miniStat(value: "\(mangas.count)", label: "Titles", icon: "books.vertical.fill", tint: YomiTheme.accentStrong)
-            miniStat(value: "\(unreadTotal)", label: "Unread", icon: "circle.fill", tint: YomiTheme.unreadBadge)
-            miniStat(value: "\(downloadedTotal)", label: "Offline", icon: "arrow.down.circle.fill", tint: YomiTheme.success)
-        }
-    }
-
-    private func miniStat(value: String, label: String, icon: String, tint: Color) -> some View {
-        HStack(spacing: 9) {
-            Image(systemName: icon)
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(tint)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(value)
-                    .font(YomiFont.number)
-                    .foregroundStyle(YomiTheme.textPrimary)
-                Text(label)
-                    .font(YomiFont.micro)
-                    .foregroundStyle(YomiTheme.textTertiary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(YomiTheme.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .stroke(YomiTheme.border, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-    }
-
-    // MARK: - Category shelf
-
-    private var categoryShelf: some View {
+    private var categoryBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                YomiFilterChip(
+                categoryPill(
                     title: "All",
-                    isSelected: selectedCategoryId == nil,
-                    icon: "square.grid.2x2.fill"
+                    count: mangas.count,
+                    isSelected: selectedCategoryId == nil
                 ) {
                     selectCategory(nil)
                 }
 
                 ForEach(categories) { category in
-                    YomiFilterChip(
+                    categoryPill(
                         title: category.name,
-                        isSelected: selectedCategoryId == category.id,
-                        icon: category.isLocked ? "lock.fill" : "folder.fill"
+                        count: nil,
+                        isSelected: selectedCategoryId == category.id
                     ) {
                         selectCategory(category)
                     }
@@ -369,52 +234,65 @@ public struct LibraryView: View {
                 Button {
                     isShowingCategoryManager = true
                 } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(YomiTheme.textSecondary)
-                        .frame(width: 30, height: 30)
-                        .background(YomiTheme.surface)
-                        .overlay(Circle().stroke(YomiTheme.border, lineWidth: 1))
-                        .clipShape(Circle())
+                    Image(systemName: "slider.horizontal.2.square")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(YomiTheme.textTertiary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 6)
                 }
                 .buttonStyle(.plain)
             }
+            .padding(.horizontal, YomiTheme.contentPadding)
+            .padding(.vertical, 8)
+        }
+        .background(YomiTheme.pureBlack)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(YomiTheme.border).frame(height: 0.5)
         }
     }
 
-    private var filterShelf: some View {
-        HStack(spacing: 8) {
-            YomiSearchField(text: $searchQuery, placeholder: "Filter library")
-                .frame(maxWidth: .infinity)
-
-            Menu {
-                ForEach(LibraryFilter.allCases, id: \.self) { option in
-                    Button {
-                        filterRaw = option.rawValue
-                    } label: {
-                        Label(option.title, systemImage: option.icon)
-                    }
+    private func categoryPill(title: String, count: Int?, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Text(title)
+                    .font(YomiFont.caption.weight(isSelected ? .semibold : .regular))
+                if let count, count > 0 {
+                    Text("\(count)")
+                        .font(YomiFont.micro)
+                        .foregroundStyle(isSelected ? YomiTheme.accentStrong : YomiTheme.textTertiary)
                 }
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(filter == .all ? YomiTheme.textSecondary : YomiTheme.accentStrong)
-                    .frame(width: 44, height: 44)
-                    .background(YomiTheme.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 13, style: .continuous)
-                            .stroke(filter == .all ? YomiTheme.border : YomiTheme.accent.opacity(0.5), lineWidth: 1)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
             }
-            .buttonStyle(.plain)
+            .foregroundStyle(isSelected ? .white : YomiTheme.textSecondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(isSelected ? YomiTheme.elevatedSurface : Color.clear)
+            .clipShape(Capsule())
+            .overlay(
+                Capsule().stroke(isSelected ? YomiTheme.borderStrong : Color.clear, lineWidth: 0.5)
+            )
         }
+        .buttonStyle(.plain)
     }
 
-    // MARK: - Content
+    private var incognitoNotice: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "eye.slash.fill")
+                .font(.system(size: 11, weight: .medium))
+            Text("Incognito mode active · History and tracker writes paused")
+                .font(YomiFont.caption)
+        }
+        .foregroundStyle(YomiTheme.accentStrong)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(YomiTheme.accentSoft)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+
+    // MARK: - Content Layouts
 
     private var gridContent: some View {
-        LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 16) {
+        LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 14) {
             ForEach(displayedMangas) { manga in
                 NavigationLink {
                     MangaDetailView(manga: manga)
@@ -422,7 +300,8 @@ public struct LibraryView: View {
                     MangaGridCard(
                         manga: manga,
                         unreadCount: progressByManga[manga.id ?? -1]?.unreadChapters ?? 0,
-                        progress: progressByManga[manga.id ?? -1]?.fraction ?? 0
+                        progress: progressByManga[manga.id ?? -1]?.fraction ?? 0,
+                        showsLibraryBadge: false
                     )
                 }
                 .buttonStyle(.plain)
@@ -432,7 +311,7 @@ public struct LibraryView: View {
     }
 
     private var listContent: some View {
-        LazyVStack(spacing: 10) {
+        LazyVStack(spacing: 8) {
             ForEach(displayedMangas) { manga in
                 NavigationLink {
                     MangaDetailView(manga: manga)
@@ -465,18 +344,18 @@ public struct LibraryView: View {
                     await loadLibrary(showsSpinner: false)
                 }
             } label: {
-                Label("Mark All Chapters Read", systemImage: "checkmark.circle")
+                Label("Mark All Read", systemImage: "checkmark.circle")
             }
         }
     }
 
     private var loadingGrid: some View {
-        LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 16) {
+        LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 14) {
             ForEach(0..<6, id: \.self) { _ in
-                RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(YomiTheme.surface)
-                    .aspectRatio(11.0 / 16.0, contentMode: .fit)
-                    .overlay(ProgressView().tint(YomiTheme.textTertiary).scaleEffect(0.7))
+                    .aspectRatio(3.0 / 4.2, contentMode: .fit)
+                    .overlay(ProgressView().tint(YomiTheme.textTertiary).scaleEffect(0.65))
             }
         }
     }
@@ -486,28 +365,27 @@ public struct LibraryView: View {
         if mangas.isEmpty {
             YomiEmptyState(
                 icon: "books.vertical",
-                title: "Your Library Is Waiting",
-                message: "Add titles from Browse to build a personal, offline-friendly collection.",
-                actionTitle: "Discover Sources"
+                title: "Your Library Is Empty",
+                message: "Discover and add manga from Sources to begin reading.",
+                actionTitle: "Browse Sources"
             ) {
-                router.openBrowse()
+                router.openSources()
             }
         } else if !searchQuery.isEmpty {
             YomiEmptyState(
                 icon: "magnifyingglass",
-                title: "No Matches",
-                message: "Try a shorter title, author name, or clear the active filter.",
+                title: "No Results",
+                message: "No library titles match \"\(searchQuery)\".",
                 actionTitle: "Clear Search"
             ) {
                 searchQuery = ""
-                filterRaw = LibraryFilter.all.rawValue
             }
         } else {
             YomiEmptyState(
-                icon: "line.3.horizontal.decrease.circle",
-                title: "Nothing in This View",
-                message: "No titles match this shelf and filter combination.",
-                actionTitle: "Show Everything"
+                icon: "tray",
+                title: "No Titles in Category",
+                message: "This category does not have any manga yet.",
+                actionTitle: "Show All Titles"
             ) {
                 selectedCategoryId = nil
                 filterRaw = LibraryFilter.all.rawValue
@@ -515,7 +393,7 @@ public struct LibraryView: View {
         }
     }
 
-    // MARK: - Data
+    // MARK: - Data Management
 
     private func loadLibrary(showsSpinner: Bool = true) async {
         if showsSpinner { isLoading = true }
@@ -540,19 +418,10 @@ public struct LibraryView: View {
                 lastRead[item.mangaId] = item.readAt
             }
 
-            var seenMangaIds: Set<Int64> = []
-            var recent: [HistoryItem] = []
-            for item in history where libraryIds.contains(item.mangaId) && !seenMangaIds.contains(item.mangaId) {
-                seenMangaIds.insert(item.mangaId)
-                recent.append(item)
-                if recent.count == 8 { break }
-            }
-
             categories = loadedCategories
             mangas = loadedMangas
             progressByManga = progress
             lastReadByManga = lastRead
-            recentHistory = recent
             downloadCounts = downloadManager.downloadedChapterCounts()
             errorMessage = nil
         } catch {
@@ -578,145 +447,11 @@ public struct LibraryView: View {
         }
     }
 
-    private func openReader(for item: HistoryItem) {
-        Task {
-            guard let manga = try? await mangaRepo.getManga(id: item.mangaId),
-                  let chapter = try? await chapterRepo.getChapter(id: item.chapterId) else {
-                return
-            }
-            await MainActor.run {
-                readerRequest = ReaderRequest(manga: manga, chapter: chapter)
-            }
-        }
-    }
-
     private func removeFromLibrary() {
         guard let manga = mangaToRemove, let id = manga.id else { return }
         Task {
             try? await mangaRepo.setInLibrary(mangaId: id, inLibrary: false)
             await loadLibrary(showsSpinner: false)
         }
-    }
-}
-
-struct ReaderRequest: Identifiable {
-    let id = UUID()
-    let manga: Manga
-    let chapter: Chapter
-}
-
-enum LibrarySort: String, CaseIterable {
-    case title = "Title"
-    case recentlyAdded = "Recently Added"
-    case lastUpdated = "Last Updated"
-    case lastRead = "Last Read"
-    case mostUnread = "Most Unread"
-}
-
-enum LibraryFilter: String, CaseIterable {
-    case all = "All Titles"
-    case unread = "Unread"
-    case downloaded = "Downloaded"
-    case completed = "Completed"
-
-    var title: String { rawValue }
-
-    var icon: String {
-        switch self {
-        case .all: return "square.grid.2x2"
-        case .unread: return "circle.fill"
-        case .downloaded: return "arrow.down.circle"
-        case .completed: return "checkmark.circle"
-        }
-    }
-}
-
-private struct LibraryFilterSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    let sort: LibrarySort
-    let filter: LibraryFilter
-    let onSelectSort: (LibrarySort) -> Void
-    let onSelectFilter: (LibraryFilter) -> Void
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                YomiBackground(showsGlow: false)
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        section("Sort by") {
-                            ForEach(LibrarySort.allCases, id: \.self) { option in
-                                selectionRow(
-                                    title: option.rawValue,
-                                    icon: "arrow.up.arrow.down",
-                                    selected: sort == option
-                                ) {
-                                    onSelectSort(option)
-                                }
-                            }
-                        }
-
-                        section("Filter") {
-                            ForEach(LibraryFilter.allCases, id: \.self) { option in
-                                selectionRow(
-                                    title: option.title,
-                                    icon: option.icon,
-                                    selected: filter == option
-                                ) {
-                                    onSelectFilter(option)
-                                }
-                            }
-                        }
-                    }
-                    .padding(20)
-                }
-            }
-            .navigationTitle("Library View")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                        .foregroundStyle(YomiTheme.accentStrong)
-                }
-            }
-        }
-    }
-
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title.uppercased())
-                .font(YomiFont.micro)
-                .tracking(1.4)
-                .foregroundStyle(YomiTheme.textTertiary)
-            VStack(spacing: 0) { content() }
-                .padding(.horizontal, 14)
-                .background(YomiTheme.surface)
-                .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous))
-        }
-    }
-
-    private func selectionRow(title: String, icon: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(selected ? YomiTheme.accentStrong : YomiTheme.textSecondary)
-                    .frame(width: 26)
-                Text(title)
-                    .font(YomiFont.body.weight(.semibold))
-                    .foregroundStyle(YomiTheme.textPrimary)
-                Spacer()
-                if selected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(YomiTheme.accentStrong)
-                }
-            }
-            .padding(.vertical, 13)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 }

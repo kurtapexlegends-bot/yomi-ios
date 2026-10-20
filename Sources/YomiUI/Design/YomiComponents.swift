@@ -2,31 +2,17 @@ import SwiftUI
 
 // MARK: - Background
 
-/// True-black canvas with a restrained violet ambient bloom. No rainbow gradients or
-/// decorative borders are used anywhere in the app.
+/// True-black OLED canvas (#000000). Pixels physically power down for infinite contrast.
 public struct YomiBackground: View {
     public let showsGlow: Bool
 
-    public init(showsGlow: Bool = true) {
+    public init(showsGlow: Bool = false) {
         self.showsGlow = showsGlow
     }
 
     public var body: some View {
-        ZStack {
-            YomiTheme.background
-
-            if showsGlow {
-                RadialGradient(
-                    colors: [YomiTheme.accent.opacity(0.16), YomiTheme.accent.opacity(0.025), .clear],
-                    center: .topLeading,
-                    startRadius: 0,
-                    endRadius: 430
-                )
-                .blendMode(.plusLighter)
-                .opacity(0.9)
-            }
-        }
-        .ignoresSafeArea()
+        YomiTheme.background
+            .ignoresSafeArea()
     }
 }
 
@@ -42,7 +28,7 @@ public struct YomiEyebrow: View {
     public var body: some View {
         Text(text.uppercased())
             .font(YomiFont.micro)
-            .tracking(1.8)
+            .tracking(1.4)
             .foregroundStyle(YomiTheme.accentStrong)
     }
 }
@@ -63,8 +49,8 @@ public struct YomiScreenHeader<Trailing: View>: View {
     }
 
     public var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 5) {
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(YomiFont.screenTitle)
                     .foregroundStyle(YomiTheme.textPrimary)
@@ -108,7 +94,7 @@ public struct YomiSectionHeader: View {
 
     public var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(YomiFont.sectionTitle)
                     .foregroundStyle(YomiTheme.textPrimary)
@@ -121,7 +107,7 @@ public struct YomiSectionHeader: View {
             Spacer(minLength: 8)
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
-                    .font(YomiFont.caption.weight(.bold))
+                    .font(YomiFont.caption.weight(.semibold))
                     .foregroundStyle(YomiTheme.accentStrong)
             }
         }
@@ -146,7 +132,7 @@ public struct YomiCard<Content: View>: View {
             .background(YomiTheme.surface)
             .overlay(
                 RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous)
-                    .stroke(YomiTheme.border, lineWidth: 1)
+                    .stroke(YomiTheme.border, lineWidth: 0.5)
             )
             .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous))
     }
@@ -167,10 +153,10 @@ public struct YomiTag: View {
         Text(text)
             .font(YomiFont.micro)
             .foregroundStyle(filled ? YomiTheme.background : tint)
-            .padding(.horizontal, 7)
+            .padding(.horizontal, 6)
             .padding(.vertical, 3)
             .background(filled ? tint : tint.opacity(0.12))
-            .clipShape(Capsule())
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
     }
 }
 
@@ -188,13 +174,13 @@ public struct YomiStatBadge: View {
     }
 
     public var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Image(systemName: icon)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(tint)
-                .frame(width: 30, height: 30)
+                .frame(width: 28, height: 28)
                 .background(tint.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(value)
@@ -232,7 +218,7 @@ public struct YomiSearchField: View {
     public var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(focused ? YomiTheme.accentStrong : YomiTheme.textTertiary)
 
             TextField(placeholder, text: $text)
@@ -256,14 +242,14 @@ public struct YomiSearchField: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 14)
-        .frame(height: 44)
+        .padding(.horizontal, 12)
+        .frame(height: 38)
         .background(YomiTheme.surface)
         .overlay(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .stroke(focused ? YomiTheme.accent.opacity(0.65) : YomiTheme.border, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(focused ? YomiTheme.accent.opacity(0.6) : YomiTheme.border, lineWidth: 0.5)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
@@ -279,27 +265,23 @@ public struct YomiSegmentedControl<Item: Hashable>: View {
     }
 
     public var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 3) {
             ForEach(items, id: \.self) { item in
                 Button {
-                    withAnimation(.easeOut(duration: 0.18)) {
+                    withAnimation(.easeOut(duration: 0.16)) {
                         selection = item
                     }
                 } label: {
                     Text(title(item))
-                        .font(YomiFont.caption.weight(.bold))
+                        .font(YomiFont.caption.weight(selection == item ? .semibold : .regular))
                         .foregroundStyle(selection == item ? YomiTheme.textPrimary : YomiTheme.textSecondary)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 7)
                         .background(
                             Group {
                                 if selection == item {
-                                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
                                         .fill(YomiTheme.elevatedSurface)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                                .stroke(YomiTheme.borderStrong, lineWidth: 1)
-                                        )
                                 } else {
                                     Color.clear
                                 }
@@ -309,13 +291,9 @@ public struct YomiSegmentedControl<Item: Hashable>: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(4)
+        .padding(3)
         .background(YomiTheme.sunkenSurface)
-        .overlay(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .stroke(YomiTheme.border, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
     }
 }
 
@@ -337,17 +315,17 @@ public struct YomiFilterChip: View {
             HStack(spacing: 5) {
                 if let icon {
                     Image(systemName: icon)
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: 10, weight: .semibold))
                 }
                 Text(title)
-                    .font(YomiFont.caption.weight(.semibold))
+                    .font(YomiFont.caption.weight(isSelected ? .semibold : .regular))
             }
-            .foregroundStyle(isSelected ? YomiTheme.background : YomiTheme.textSecondary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(isSelected ? YomiTheme.textPrimary : YomiTheme.surface)
+            .foregroundStyle(isSelected ? .white : YomiTheme.textSecondary)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 6)
+            .background(isSelected ? YomiTheme.elevatedSurface : YomiTheme.surface)
             .overlay(
-                Capsule().stroke(isSelected ? Color.clear : YomiTheme.border, lineWidth: 1)
+                Capsule().stroke(isSelected ? YomiTheme.borderStrong : YomiTheme.border, lineWidth: 0.5)
             )
             .clipShape(Capsule())
         }
@@ -360,7 +338,7 @@ public struct YomiProgressBar: View {
     public let tint: Color
     public let height: CGFloat
 
-    public init(value: Double, tint: Color = YomiTheme.accent, height: CGFloat = 4) {
+    public init(value: Double, tint: Color = YomiTheme.accent, height: CGFloat = 2) {
         self.value = value
         self.tint = tint
         self.height = height
@@ -403,13 +381,14 @@ public struct YomiEmptyState: View {
     }
 
     public var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 12) {
             Image(systemName: icon)
-                .font(.system(size: 34, weight: .medium))
-                .foregroundStyle(YomiTheme.accentStrong)
-                .frame(width: 70, height: 70)
-                .background(YomiTheme.accentSoft)
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .font(.system(size: 32, weight: .light))
+                .foregroundStyle(YomiTheme.textSecondary)
+                .frame(width: 60, height: 60)
+                .background(YomiTheme.surface)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(YomiTheme.border, lineWidth: 0.5))
 
             Text(title)
                 .font(YomiFont.sectionTitle)
@@ -420,8 +399,8 @@ public struct YomiEmptyState: View {
                 .font(YomiFont.body)
                 .foregroundStyle(YomiTheme.textSecondary)
                 .multilineTextAlignment(.center)
-                .lineSpacing(3)
-                .padding(.horizontal, 20)
+                .lineSpacing(2)
+                .padding(.horizontal, 24)
 
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
@@ -430,7 +409,7 @@ public struct YomiEmptyState: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 34)
+        .padding(.vertical, 40)
         .padding(.horizontal, 20)
     }
 }
@@ -442,13 +421,13 @@ public struct YomiPrimaryButtonStyle: ButtonStyle {
 
     public func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(YomiFont.caption.weight(.bold))
+            .font(YomiFont.caption.weight(.semibold))
             .foregroundStyle(.white)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
             .background(YomiTheme.accent)
-            .clipShape(Capsule())
-            .opacity(configuration.isPressed ? 0.72 : 1)
+            .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusSmall, style: .continuous))
+            .opacity(configuration.isPressed ? 0.75 : 1)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
     }
 }
@@ -458,14 +437,17 @@ public struct YomiSecondaryButtonStyle: ButtonStyle {
 
     public func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(YomiFont.caption.weight(.bold))
+            .font(YomiFont.caption.weight(.semibold))
             .foregroundStyle(YomiTheme.textPrimary)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 11)
+            .padding(.horizontal, 15)
+            .padding(.vertical, 9)
             .background(YomiTheme.surface)
-            .overlay(Capsule().stroke(YomiTheme.border, lineWidth: 1))
-            .clipShape(Capsule())
-            .opacity(configuration.isPressed ? 0.72 : 1)
+            .overlay(
+                RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusSmall, style: .continuous)
+                    .stroke(YomiTheme.border, lineWidth: 0.5)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusSmall, style: .continuous))
+            .opacity(configuration.isPressed ? 0.75 : 1)
     }
 }
 
@@ -473,68 +455,23 @@ public struct YomiIconButtonStyle: ButtonStyle {
     public let size: CGFloat
     public let tint: Color
 
-    public init(size: CGFloat = 40, tint: Color = YomiTheme.textPrimary) {
+    public init(size: CGFloat = 36, tint: Color = YomiTheme.textPrimary) {
         self.size = size
         self.tint = tint
     }
 
     public func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 15, weight: .semibold))
+            .font(.system(size: 14, weight: .regular))
             .foregroundStyle(tint)
             .frame(width: size, height: size)
             .background(YomiTheme.surface)
             .overlay(
-                RoundedRectangle(cornerRadius: size * 0.32, style: .continuous)
-                    .stroke(YomiTheme.border, lineWidth: 1)
+                Circle().stroke(YomiTheme.border, lineWidth: 0.5)
             )
-            .clipShape(RoundedRectangle(cornerRadius: size * 0.32, style: .continuous))
+            .clipShape(Circle())
             .opacity(configuration.isPressed ? 0.7 : 1)
     }
 }
 
-// MARK: - Covers
 
-public struct YomiCoverImage: View {
-    public let urlString: String?
-    public let title: String
-    public let cornerRadius: CGFloat
-
-    public init(urlString: String?, title: String, cornerRadius: CGFloat = YomiTheme.cornerRadiusMedium) {
-        self.urlString = urlString
-        self.title = title
-        self.cornerRadius = cornerRadius
-    }
-
-    public var body: some View {
-        AsyncImage(url: URL(string: urlString ?? "")) { phase in
-            switch phase {
-            case .success(let image):
-                image
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            case .failure:
-                placeholder
-            case .empty:
-                placeholder.overlay(ProgressView().tint(YomiTheme.textTertiary).scaleEffect(0.65))
-            @unknown default:
-                placeholder
-            }
-        }
-        .background(YomiTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(YomiTheme.border, lineWidth: 1)
-        )
-    }
-
-    private var placeholder: some View {
-        ZStack {
-            YomiTheme.elevatedSurface
-            Image(systemName: "book.closed.fill")
-                .font(.system(size: 24, weight: .medium))
-                .foregroundStyle(YomiTheme.textTertiary)
-        }
-    }
-}

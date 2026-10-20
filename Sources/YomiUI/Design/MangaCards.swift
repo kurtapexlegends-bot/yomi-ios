@@ -2,7 +2,8 @@ import SwiftUI
 import YomiCore
 import YomiDatabase
 
-/// Grid card used by the library, source browsing, and search results.
+/// Minimalist, cover-first grid card for library, source browsing, and search results.
+/// Cover art is kept pristine without heavy gradients or superimposed text.
 public struct MangaGridCard: View {
     public let manga: Manga
     public let unreadCount: Int
@@ -22,74 +23,82 @@ public struct MangaGridCard: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .topTrailing) {
                 YomiCoverImage(
                     urlString: manga.effectiveThumbnailUrl,
                     title: manga.title,
-                    cornerRadius: YomiTheme.cornerRadiusMedium
+                    cornerRadius: 8
                 )
-                .aspectRatio(11.0 / 16.0, contentMode: .fit)
+                .aspectRatio(3.0 / 4.2, contentMode: .fit)
 
-                LinearGradient(
-                    colors: [.clear, .black.opacity(0.78)],
-                    startPoint: .center,
-                    endPoint: .bottom
-                )
-                .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous))
-                .allowsHitTesting(false)
-
+                // Top-left: Library indicator
                 if showsLibraryBadge && manga.inLibrary {
-                    Image(systemName: "heart.fill")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(5)
-                        .background(YomiTheme.accent.opacity(0.92))
-                        .clipShape(Circle())
-                        .padding(7)
+                    HStack {
+                        Image(systemName: "bookmark.fill")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(YomiTheme.accentStrong)
+                            .padding(5)
+                            .background(Color.black.opacity(0.72))
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(YomiTheme.border, lineWidth: 0.5))
+                            .padding(6)
+                        Spacer()
+                    }
                 }
 
+                // Top-right: Unread badge
                 if unreadCount > 0 {
                     Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
                         .font(YomiFont.micro)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
+                        .padding(.vertical, 2.5)
                         .background(YomiTheme.accent)
                         .clipShape(Capsule())
-                        .padding(7)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        .padding(6)
                 }
-            }
-            .overlay(alignment: .bottomLeading) {
-                Text(manga.title)
-                    .font(YomiFont.caption.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .padding(9)
-            }
-            .overlay(alignment: .bottom) {
+
+                // Bottom edge: Reading progress line
                 if progress > 0 && progress < 1 {
-                    YomiProgressBar(value: progress, tint: YomiTheme.accentStrong, height: 2)
-                        .padding(.horizontal, 10)
-                        .padding(.bottom, 4)
+                    VStack {
+                        Spacer()
+                        GeometryReader { proxy in
+                            ZStack(alignment: .leading) {
+                                Rectangle().fill(Color.black.opacity(0.5))
+                                Rectangle()
+                                    .fill(YomiTheme.accentStrong)
+                                    .frame(width: max(0, min(proxy.size.width, proxy.size.width * progress)))
+                            }
+                        }
+                        .frame(height: 2.5)
+                        .clipShape(RoundedRectangle(cornerRadius: 1))
+                    }
                 }
             }
 
-            if let author = manga.author, !author.isEmpty {
-                Text(author)
-                    .font(YomiFont.micro)
-                    .foregroundStyle(YomiTheme.textTertiary)
-                    .lineLimit(1)
-                    .padding(.top, 7)
-                    .padding(.horizontal, 2)
+            // Title below cover
+            VStack(alignment: .leading, spacing: 2) {
+                Text(manga.title)
+                    .font(YomiFont.caption.weight(.semibold))
+                    .foregroundStyle(YomiTheme.textPrimary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+
+                if let author = manga.author, !author.isEmpty {
+                    Text(author)
+                        .font(YomiFont.micro)
+                        .foregroundStyle(YomiTheme.textTertiary)
+                        .lineLimit(1)
+                }
             }
+            .padding(.horizontal, 1)
         }
         .contentShape(Rectangle())
     }
 }
 
-/// Dense list row used when the library is switched to list mode.
+/// Minimalist list row with clear information density and zero clunky border soup.
 public struct MangaListRow: View {
     public let manga: Manga
     public let unreadCount: Int
@@ -102,28 +111,30 @@ public struct MangaListRow: View {
     }
 
     public var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             YomiCoverImage(
                 urlString: manga.effectiveThumbnailUrl,
                 title: manga.title,
-                cornerRadius: 10
+                cornerRadius: 6
             )
-            .frame(width: 62, height: 90)
+            .frame(width: 52, height: 74)
             .clipped()
 
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .top, spacing: 8) {
                     Text(manga.title)
                         .font(YomiFont.cardTitle)
                         .foregroundStyle(YomiTheme.textPrimary)
                         .lineLimit(2)
+
                     Spacer(minLength: 4)
+
                     if unreadCount > 0 {
                         Text("\(unreadCount)")
                             .font(YomiFont.micro)
                             .foregroundStyle(.white)
                             .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
+                            .padding(.vertical, 2.5)
                             .background(YomiTheme.accent)
                             .clipShape(Capsule())
                     }
@@ -145,22 +156,23 @@ public struct MangaListRow: View {
 
                 if progress > 0 {
                     HStack(spacing: 8) {
-                        YomiProgressBar(value: progress, tint: YomiTheme.accentStrong, height: 3)
+                        YomiProgressBar(value: progress, tint: YomiTheme.accentStrong, height: 2)
                         Text("\(Int(progress * 100))%")
                             .font(YomiFont.micro)
                             .foregroundStyle(YomiTheme.textTertiary)
-                            .frame(width: 30, alignment: .trailing)
+                            .frame(width: 28, alignment: .trailing)
                     }
                 }
             }
         }
-        .padding(12)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
         .background(YomiTheme.surface)
         .overlay(
-            RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous)
-                .stroke(YomiTheme.border, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(YomiTheme.border, lineWidth: 0.5)
         )
-        .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .contentShape(Rectangle())
     }
 

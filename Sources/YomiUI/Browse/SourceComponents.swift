@@ -25,16 +25,16 @@ public struct SourceIconView: View {
                 ZStack {
                     YomiTheme.elevatedSurface
                     Text(initials)
-                        .font(.system(size: size * 0.32, weight: .bold, design: .rounded))
+                        .font(.system(size: size * 0.34, weight: .bold))
                         .foregroundStyle(YomiTheme.accentStrong)
                 }
             }
         }
         .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-                .stroke(YomiTheme.border, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(YomiTheme.border, lineWidth: 0.5)
         )
     }
 
@@ -171,13 +171,13 @@ public struct SourceManagementSheet: View {
                 .accessibilityLabel("Remove \(manifest.name)")
             }
         }
-        .padding(12)
+        .padding(11)
         .background(YomiTheme.surface)
         .overlay(
-            RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous)
-                .stroke(YomiTheme.border, lineWidth: 1)
+            RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusSmall, style: .continuous)
+                .stroke(YomiTheme.border, lineWidth: 0.5)
         )
-        .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusSmall, style: .continuous))
     }
 
     private func removeSource() {

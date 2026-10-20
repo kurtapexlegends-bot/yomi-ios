@@ -18,13 +18,8 @@ public final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificat
         // Start iCloud sync listener
         CloudSyncCoordinator.shared.startObserving()
 
-        // Request local notification permissions for chapter releases
+        // Configure local notification delegate
         UNUserNotificationCenter.current().delegate = self
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
-            if let error = error {
-                print("[AppDelegate] Notification authorization error: \(error)")
-            }
-        }
 
         return true
     }

@@ -149,11 +149,11 @@ public struct ReaderOverlayView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(mangaTitle)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.62))
                     .lineLimit(1)
                 Text(chapterTitle)
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
             }
@@ -209,7 +209,7 @@ public struct ReaderOverlayView: View {
                         Image(systemName: "backward.end.fill")
                             .font(.system(size: 10, weight: .bold))
                         Text("Prev")
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .font(.system(size: 11, weight: .bold))
                     }
                     .foregroundStyle(.white.opacity(0.9))
                     .padding(.horizontal, 12)
@@ -228,7 +228,7 @@ public struct ReaderOverlayView: View {
                         Image(systemName: "list.bullet")
                             .font(.system(size: 11, weight: .bold))
                         Text(chapterPosition)
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .font(.system(size: 11, weight: .bold))
                             .lineLimit(1)
                         Image(systemName: "chevron.up")
                             .font(.system(size: 8, weight: .bold))
@@ -246,7 +246,7 @@ public struct ReaderOverlayView: View {
                 Button(action: onNextChapter) {
                     HStack(spacing: 6) {
                         Text("Next")
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .font(.system(size: 11, weight: .bold))
                         Image(systemName: "forward.end.fill")
                             .font(.system(size: 10, weight: .bold))
                     }
@@ -359,7 +359,7 @@ struct ReaderChapterListSheet: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.42))
             TextField("Find a chapter", text: $searchText)
-                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.white)
             if !searchText.isEmpty {
                 Button {
@@ -390,12 +390,12 @@ struct ReaderChapterListSheet: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(chapter.displayTitle)
-                        .font(.system(size: 13, weight: isCurrent ? .bold : .medium, design: .rounded))
+                        .font(.system(size: 13, weight: isCurrent ? .bold : .medium))
                         .foregroundStyle(isCurrent ? .white : .white.opacity(0.84))
                         .lineLimit(1)
                     if let scanlator = chapter.scanlator, !scanlator.isEmpty {
                         Text(scanlator)
-                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                            .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.white.opacity(0.35))
                             .lineLimit(1)
                     }
@@ -474,7 +474,7 @@ public struct ReaderSettingsSheet: View {
                             VStack(alignment: .leading, spacing: 8) {
                                 HStack {
                                     Label("Brightness", systemImage: "sun.max")
-                                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                        .font(.system(size: 13, weight: .semibold))
                                         .foregroundStyle(.white.opacity(0.86))
                                     Spacer()
                                     Text("\(Int(customBrightness * 100))%")
@@ -504,7 +504,7 @@ public struct ReaderSettingsSheet: View {
                             customBrightness = 1.0
                         } label: {
                             Text("Reset reader settings")
-                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .font(.system(size: 12, weight: .bold))
                                 .foregroundStyle(.white.opacity(0.6))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 11)
@@ -533,7 +533,7 @@ public struct ReaderSettingsSheet: View {
     private func settingsSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title.uppercased())
-                .font(.system(size: 9, weight: .bold, design: .rounded))
+                .font(.system(size: 9, weight: .bold))
                 .tracking(1.6)
                 .foregroundStyle(ReaderPalette.violetBright.opacity(0.8))
 
@@ -561,11 +561,11 @@ public struct ReaderSettingsSheet: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.90))
                     if let subtitle {
                         Text(subtitle)
-                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                            .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.white.opacity(0.35))
                             .lineLimit(1)
                     }
@@ -596,7 +596,7 @@ public struct ReaderSettingsSheet: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             Text(title)
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.90))
 
             Spacer()

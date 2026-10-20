@@ -79,7 +79,7 @@ public struct BrowseView: View {
 
     private var header: some View {
         YomiScreenHeader(
-            title: "Browse",
+            title: "Sources",
             subtitle: subtitle
         ) {
             Button {
@@ -244,13 +244,13 @@ private struct SourcesCatalogView: View {
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(YomiTheme.accentStrong)
             }
-            .padding(14)
+            .padding(12)
             .background(YomiTheme.surface)
             .overlay(
-                RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous)
-                    .stroke(YomiTheme.border, lineWidth: 1)
+                RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusSmall, style: .continuous)
+                    .stroke(YomiTheme.border, lineWidth: 0.5)
             )
-            .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusSmall, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -326,13 +326,13 @@ private struct SourcesCatalogView: View {
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(YomiTheme.textTertiary)
             }
-            .padding(12)
+            .padding(10)
             .background(YomiTheme.surface)
             .overlay(
-                RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous)
-                    .stroke(YomiTheme.border, lineWidth: 1)
+                RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusSmall, style: .continuous)
+                    .stroke(YomiTheme.border, lineWidth: 0.5)
             )
-            .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusSmall, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

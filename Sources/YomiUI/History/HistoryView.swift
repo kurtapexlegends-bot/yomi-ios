@@ -2,7 +2,7 @@ import SwiftUI
 import YomiCore
 import YomiDatabase
 
-/// Chronological reading history with resume, filtering, and cleanup actions.
+/// Chronological reading history with instant resume, search, and cleanup actions.
 public struct HistoryView: View {
     @State private var historyItems: [HistoryItem] = []
     @State private var isLoading: Bool = false
@@ -70,195 +70,151 @@ public struct HistoryView: View {
         return result
     }
 
-    private var uniqueTitles: Int {
-        Set(historyItems.map(\.mangaId)).count
-    }
-
-    private var thisWeekCount: Int {
-        let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? .distantPast
-        return historyItems.filter { $0.readAt >= cutoff }.count
-    }
-
-    private var inProgressCount: Int {
-        historyItems.filter { !$0.isRead }.count
-    }
-
     public var body: some View {
         NavigationStack {
             ZStack {
-                YomiBackground()
+                YomiBackground(showsGlow: false)
 
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 18) {
-                        header
+                VStack(spacing: 0) {
+                    filterBar
 
-                        if privacyManager.isIncognitoMode {
-                            incognitoBanner
-                        }
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 16) {
+                            if privacyManager.isIncognitoMode {
+                                incognitoNotice
+                            }
 
-                        summaryCard
-                        controls
+                            if isLoading && historyItems.isEmpty {
+                                ProgressView()
+                                    .tint(YomiTheme.accent)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 40)
+                            } else if filteredHistory.isEmpty {
+                                emptyState
+                            } else {
+                                ForEach(sections, id: \.title) { section in
+                                    historySection(section)
+                                }
+                            }
 
-                        if isLoading && historyItems.isEmpty {
-                            ProgressView()
-                                .tint(YomiTheme.accent)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 40)
-                        } else if filteredHistory.isEmpty {
-                            emptyState
-                        } else {
-                            ForEach(sections, id: \.title) { section in
-                                historySection(section)
+                            if let errorMessage {
+                                Text(errorMessage)
+                                    .font(YomiFont.caption)
+                                    .foregroundStyle(YomiTheme.danger)
                             }
                         }
-
-                        if let errorMessage {
-                            Text(errorMessage)
-                                .font(YomiFont.caption)
-                                .foregroundStyle(YomiTheme.danger)
+                        .padding(.horizontal, YomiTheme.contentPadding)
+                        .padding(.top, 12)
+                        .padding(.bottom, 24)
+                    }
+                    .scrollIndicators(.hidden)
+                    .refreshable { await loadHistory() }
+                }
+            }
+            .navigationTitle("History")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    if !historyItems.isEmpty {
+                        Menu {
+                            Button(role: .destructive) {
+                                showingClearConfirmation = true
+                            } label: {
+                                Label("Clear All History", systemImage: "trash")
+                            }
+                            Button {
+                                Task { await loadHistory() }
+                            } label: {
+                                Label("Refresh", systemImage: "arrow.clockwise")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .foregroundStyle(YomiTheme.textSecondary)
                         }
                     }
-                    .padding(.horizontal, YomiTheme.contentPadding)
-                    .padding(.top, 14)
-                    .padding(.bottom, 30)
                 }
-                .scrollIndicators(.hidden)
-                .refreshable { await loadHistory(showsSpinner: false) }
             }
-            .yomiNavigationBarHidden()
+            .searchable(text: $searchQuery, prompt: "Search history")
             .navigationDestination(item: $detailManga) { manga in
                 MangaDetailView(manga: manga)
             }
             .yomiFullScreenCover(item: $readerRequest, onDismiss: {
-                Task { await loadHistory(showsSpinner: false) }
+                Task { await loadHistory() }
             }) { request in
                 ReaderContainerView(manga: request.manga, chapter: request.chapter)
             }
             .confirmationDialog(
-                "Clear all reading history?",
+                "Clear entire reading history?",
                 isPresented: $showingClearConfirmation,
                 titleVisibility: .visible
             ) {
-                Button("Clear History", role: .destructive) { clearHistory() }
+                Button("Clear History", role: .destructive) {
+                    clearAllHistory()
+                }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This removes history entries only. Reading progress and downloaded chapters are kept.")
+                Text("Titles in your library and downloaded chapters are kept.")
             }
             .task { await loadHistory() }
         }
     }
 
-    // MARK: - Header
+    // MARK: - Subviews
 
-    private var header: some View {
-        YomiScreenHeader(title: "History", subtitle: headerSubtitle) {
-            if !historyItems.isEmpty {
-                Menu {
-                    Button {
-                        showingClearConfirmation = true
-                    } label: {
-                        Label("Clear All History", systemImage: "trash")
+    private var filterBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(HistoryFilter.allCases, id: \.self) { option in
+                    YomiFilterChip(
+                        title: option.title,
+                        isSelected: filter == option,
+                        icon: nil
+                    ) {
+                        filter = option
                     }
-                    Button {
-                        Task { await loadHistory() }
-                    } label: {
-                        Label("Refresh", systemImage: "arrow.clockwise")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
                 }
-                .buttonStyle(YomiIconButtonStyle())
             }
+            .padding(.horizontal, YomiTheme.contentPadding)
+            .padding(.vertical, 8)
+        }
+        .background(YomiTheme.pureBlack)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(YomiTheme.border).frame(height: 0.5)
         }
     }
 
-    private var headerSubtitle: String {
-        if historyItems.isEmpty { return "Your reading trail, kept locally" }
-        return "\(historyItems.count) chapters · \(uniqueTitles) titles"
-    }
-
-    private var incognitoBanner: some View {
-        HStack(spacing: 9) {
+    private var incognitoNotice: some View {
+        HStack(spacing: 8) {
             Image(systemName: "eye.slash.fill")
-                .font(.system(size: 11, weight: .semibold))
-            Text("Incognito is on · new reading sessions are not added to history")
-                .font(YomiFont.caption.weight(.semibold))
-            Spacer(minLength: 0)
+                .font(.system(size: 11, weight: .medium))
+            Text("Incognito · Reading activity is not logged")
+                .font(YomiFont.caption)
         }
         .foregroundStyle(YomiTheme.accentStrong)
-        .padding(.horizontal, 13)
-        .padding(.vertical, 10)
-        .background(YomiTheme.accentSoft)
-        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-    }
-
-    // MARK: - Summary
-
-    private var summaryCard: some View {
-        YomiCard(padding: 16) {
-            HStack(spacing: 12) {
-                summaryStat(value: "\(thisWeekCount)", label: "This week", tint: YomiTheme.accentStrong)
-                Divider().frame(height: 32).overlay(YomiTheme.border)
-                summaryStat(value: "\(inProgressCount)", label: "In progress", tint: YomiTheme.warning)
-                Divider().frame(height: 32).overlay(YomiTheme.border)
-                summaryStat(value: "\(uniqueTitles)", label: "Titles", tint: YomiTheme.unreadBadge)
-            }
-        }
-    }
-
-    private func summaryStat(value: String, label: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(value)
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-                .foregroundStyle(tint)
-            Text(label)
-                .font(YomiFont.micro)
-                .foregroundStyle(YomiTheme.textTertiary)
-        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(YomiTheme.accentSoft)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
-
-    // MARK: - Controls
-
-    private var controls: some View {
-        VStack(spacing: 10) {
-            YomiSearchField(text: $searchQuery, placeholder: "Search history")
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(HistoryFilter.allCases, id: \.self) { option in
-                        YomiFilterChip(
-                            title: option.title,
-                            isSelected: filter == option,
-                            icon: option.icon
-                        ) {
-                            withAnimation(.easeOut(duration: 0.18)) { filter = option }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Sections
 
     private func historySection(_ section: HistoryDateSection) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
                 Text(section.title)
-                    .font(YomiFont.sectionTitle)
-                    .foregroundStyle(YomiTheme.textPrimary)
+                    .font(YomiFont.micro)
+                    .tracking(1.2)
+                    .foregroundStyle(YomiTheme.textTertiary)
+                Spacer()
                 Text("\(section.items.count)")
                     .font(YomiFont.micro)
                     .foregroundStyle(YomiTheme.textTertiary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(YomiTheme.surface)
-                    .clipShape(Capsule())
-                Spacer()
             }
+            .padding(.top, 4)
 
-            VStack(spacing: 9) {
+            LazyVStack(spacing: 0) {
                 ForEach(section.items) { item in
                     historyRow(item)
                 }
@@ -274,14 +230,14 @@ public struct HistoryView: View {
                 YomiCoverImage(
                     urlString: item.effectiveThumbnailUrl,
                     title: item.mangaTitle,
-                    cornerRadius: 10
+                    cornerRadius: 6
                 )
-                .frame(width: 54, height: 78)
+                .frame(width: 44, height: 62)
                 .clipped()
             }
             .buttonStyle(.plain)
 
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(item.mangaTitle)
                     .font(YomiFont.cardTitle)
                     .foregroundStyle(YomiTheme.textPrimary)
@@ -294,7 +250,7 @@ public struct HistoryView: View {
 
                 HStack(spacing: 6) {
                     YomiTag(
-                        item.isRead ? "COMPLETED" : "PAGE \(item.lastPageRead + 1)",
+                        item.isRead ? "COMPLETED" : "P. \(item.lastPageRead + 1)",
                         tint: item.isRead ? YomiTheme.success : YomiTheme.accentStrong
                     )
                     Text(relativeTime(item.readAt))
@@ -303,27 +259,24 @@ public struct HistoryView: View {
                 }
             }
 
-            Spacer(minLength: 2)
+            Spacer(minLength: 4)
 
             Button {
                 resume(item)
             } label: {
                 Image(systemName: item.isRead ? "arrow.counterclockwise" : "play.fill")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 34, height: 34)
+                    .frame(width: 28, height: 28)
                     .background(YomiTheme.accent)
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
         }
-        .padding(11)
-        .background(YomiTheme.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous)
-                .stroke(YomiTheme.border, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous))
+        .padding(.vertical, 8)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(YomiTheme.border).frame(height: 0.5)
+        }
         .contextMenu {
             Button {
                 resume(item)
@@ -344,30 +297,22 @@ public struct HistoryView: View {
     }
 
     private var emptyState: some View {
-        let hasQuery = !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let isFiltered = hasQuery || filter != .all
-
-        return YomiEmptyState(
-            icon: isFiltered ? "line.3.horizontal.decrease.circle" : "clock.badge.xmark",
-            title: isFiltered ? "No Matches" : "No Reading History",
-            message: isFiltered
-                ? "No chapters match this search or filter."
-                : "Chapters you read will appear here so you can pick up instantly.",
-            actionTitle: isFiltered ? "Show All History" : nil,
-            action: isFiltered ? { searchQuery = ""; filter = .all } : nil
+        YomiEmptyState(
+            icon: "clock.arrow.circlepath",
+            title: historyItems.isEmpty ? "No Reading History" : "No Matching History",
+            message: historyItems.isEmpty
+                ? "Chapters you read will appear here with instant resume."
+                : "No history entries match your current filter.",
+            actionTitle: historyItems.isEmpty ? nil : "Clear Filter",
+            action: historyItems.isEmpty ? nil : { filter = .all }
         )
     }
 
-    // MARK: - Data
+    // MARK: - Actions
 
-    private func loadHistory(showsSpinner: Bool = true) async {
-        if showsSpinner { isLoading = true }
-        do {
-            historyItems = try await historyRepo.getHistory(limit: 400)
-            errorMessage = nil
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+    private func loadHistory() async {
+        isLoading = true
+        historyItems = (try? await historyRepo.getHistory(limit: 250)) ?? []
         isLoading = false
     }
 
@@ -392,15 +337,15 @@ public struct HistoryView: View {
 
     private func deleteHistory(_ item: HistoryItem) {
         Task {
-            try? await historyRepo.deleteHistoryItem(id: item.id)
-            await loadHistory(showsSpinner: false)
+            try? await historyRepo.deleteHistory(forMangaId: item.mangaId)
+            await loadHistory()
         }
     }
 
-    private func clearHistory() {
+    private func clearAllHistory() {
         Task {
             try? await historyRepo.clearAllHistory()
-            await loadHistory(showsSpinner: false)
+            await loadHistory()
         }
     }
 
@@ -418,17 +363,17 @@ private struct HistoryDateSection {
     let items: [HistoryItem]
 }
 
-enum HistoryFilter: String, CaseIterable {
+public enum HistoryFilter: String, CaseIterable {
     case all = "All"
     case inProgress = "In Progress"
-    case completed = "Completed"
+    case completed = "Finished"
 
-    var title: String { rawValue }
+    public var title: String { rawValue }
 
-    var icon: String {
+    public var icon: String {
         switch self {
-        case .all: return "clock.fill"
-        case .inProgress: return "book.fill"
+        case .all: return "clock"
+        case .inProgress: return "bookmark.fill"
         case .completed: return "checkmark.circle.fill"
         }
     }
