@@ -1,5 +1,6 @@
 import SwiftUI
 import ImageIO
+import YomiExtensions
 #if canImport(UIKit)
 import UIKit
 public typealias YomiImage = UIImage
@@ -86,12 +87,16 @@ public final class YomiImageCache: @unchecked Sendable {
         }
 
         do {
+            var rawData: Data?
             let (data, response) = try await session.data(for: request)
-            if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
-                return nil
+            if let http = response as? HTTPURLResponse, http.statusCode < 400 {
+                rawData = data
+            } else {
+                // If direct URLSession was rejected by CDN / Cloudflare, try WebKit fallback
+                rawData = await WebViewFetchService.shared.fetchData(request)
             }
 
-            guard let downsampled = Self.downsample(imageData: data, to: targetSize) else {
+            guard let finalData = rawData, let downsampled = Self.downsample(imageData: finalData, to: targetSize) else {
                 return nil
             }
 
@@ -99,6 +104,13 @@ public final class YomiImageCache: @unchecked Sendable {
             insertImage(downsampled, for: cacheKey, cost: cost)
             return downsampled
         } catch {
+            // Attempt WebKit transport before giving up on network error
+            if let webKitData = await WebViewFetchService.shared.fetchData(request),
+               let downsampled = Self.downsample(imageData: webKitData, to: targetSize) {
+                let cost = Int(targetSize.width * targetSize.height * 4)
+                insertImage(downsampled, for: cacheKey, cost: cost)
+                return downsampled
+            }
             return nil
         }
         #else

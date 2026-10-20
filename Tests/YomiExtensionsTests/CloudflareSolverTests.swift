@@ -38,6 +38,37 @@ final class CloudflareSolverTests: XCTestCase {
         XCTAssertTrue(CloudflareSolver.isClearanceCookie(clearance, forHost: "www.mangakakalot.gg"))
     }
 
+    func testExpiredClearanceCookieIsRejected() {
+        let properties: [HTTPCookiePropertyKey: Any] = [
+            .name: "cf_clearance",
+            .value: "expired-value",
+            .domain: ".mangakakalot.gg",
+            .path: "/",
+            .secure: "TRUE",
+            .expires: Date().addingTimeInterval(-60) // 1 minute in the past
+        ]
+        let expiredCookie = HTTPCookie(properties: properties)!
+        XCTAssertFalse(CloudflareSolver.isClearanceCookie(expiredCookie, forHost: "www.mangakakalot.gg"))
+    }
+
+    func testChallengeURLPreservesWebpagePath() throws {
+        let url = try XCTUnwrap(URL(string: "https://www.mangakakalot.gg/manga-list/hot-manga?page=1"))
+        let challenge = CloudflareHostPolicy.challengeURL(from: url)
+        XCTAssertEqual(challenge.absoluteString, "https://www.mangakakalot.gg/manga-list/hot-manga?page=1")
+    }
+
+    func testChallengeURLCanonicalizesDeadDomainWhilePreservingWebpagePath() throws {
+        let url = try XCTUnwrap(URL(string: "https://mangakakalot.com/manga-list/hot-manga?page=1"))
+        let challenge = CloudflareHostPolicy.challengeURL(from: url)
+        XCTAssertEqual(challenge.absoluteString, "https://www.mangakakalot.gg/manga-list/hot-manga?page=1")
+    }
+
+    func testChallengeURLStripsPathForBinaryAssets() throws {
+        let url = try XCTUnwrap(URL(string: "https://www.mangakakalot.gg/images/cover.jpg?v=2"))
+        let challenge = CloudflareHostPolicy.challengeURL(from: url)
+        XCTAssertEqual(challenge.absoluteString, "https://www.mangakakalot.gg/")
+    }
+
     func testOriginURLCanonicalizesDeadMangaKakalotDomain() throws {
         let url = try XCTUnwrap(URL(string: "https://mangakakalot.com/manga-list/hot-manga?page=1"))
         let origin = try XCTUnwrap(CloudflareSolver.originURL(from: url))

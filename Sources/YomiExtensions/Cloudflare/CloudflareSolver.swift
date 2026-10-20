@@ -54,21 +54,21 @@ public final class CloudflareSolver: NSObject, WKNavigationDelegate, @unchecked 
     /// challenge while silently failing every other request.
     @MainActor
     public func resolveChallenge(for url: URL) async -> Bool {
-        // Always present the site origin: Cloudflare serves an empty, unsolvable body for
-        // direct API/JSON requests, but a full challenge page for top-level navigation.
-        let origin = Self.originURL(from: url) ?? url
-        let host = origin.host?.lowercased() ?? url.host?.lowercased() ?? ""
+        // Present the challenge URL (keeping the page path for HTML content so Turnstile triggers,
+        // or using origin for binary/API endpoints).
+        let target = CloudflareHostPolicy.challengeURL(from: url)
+        let host = target.host?.lowercased() ?? url.host?.lowercased() ?? ""
 
         if isPresentingSolverSheet {
             return await withCheckedContinuation { continuation in
                 pendingChallenges.append(
-                    PendingChallenge(url: origin, host: host, continuation: continuation)
+                    PendingChallenge(url: target, host: host, continuation: continuation)
                 )
             }
         }
 
         return await withCheckedContinuation { continuation in
-            beginChallenge(origin: origin, host: host, continuation: continuation)
+            beginChallenge(origin: target, host: host, continuation: continuation)
         }
     }
 
@@ -84,6 +84,18 @@ public final class CloudflareSolver: NSObject, WKNavigationDelegate, @unchecked 
         statusMessage = "Solve the verification below, then tap Done."
         activeContinuation = continuation
         isPresentingSolverSheet = true
+
+        // Purge any stale/expired clearance cookies for this host so the poller does not
+        // falsely succeed on a dead session before the user even interacts.
+        WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
+            let store = WKWebsiteDataStore.default().httpCookieStore
+            for cookie in cookies where Self.isClearanceCookie(cookie, forHost: host) {
+                store.delete(cookie)
+            }
+        }
+        for cookie in HTTPCookieStorage.shared.cookies ?? [] where Self.isClearanceCookie(cookie, forHost: host) {
+            HTTPCookieStorage.shared.deleteCookie(cookie)
+        }
 
         // Poll the cookie store while the sheet is presented.
         pollTimer = Task { @MainActor [weak self] in
@@ -176,8 +188,8 @@ public final class CloudflareSolver: NSObject, WKNavigationDelegate, @unchecked 
                 || title.contains("checking your browser")
 
             if !isChallenged && !title.isEmpty {
-                // Page successfully navigated to genuine content
-                inspectChallengeStatus(forceCompletion: true)
+                // Page successfully navigated to genuine content. Verify clearance cookie exists.
+                inspectChallengeStatus(forceCompletion: false)
                 return
             }
         }
@@ -224,11 +236,15 @@ public final class CloudflareSolver: NSObject, WKNavigationDelegate, @unchecked 
         }
     }
 
-    /// A clearance cookie must be named `cf_clearance` and belong to the challenged host.
+    /// A clearance cookie must be named `cf_clearance`, belong to the challenged host,
+    /// and not be expired.
     /// `__cf_bm` is intentionally ignored: it is issued to every visitor and does not indicate
     /// that the challenge was solved.
     static func isClearanceCookie(_ cookie: HTTPCookie, forHost host: String) -> Bool {
         guard cookie.name == "cf_clearance" else { return false }
+        if let expiresDate = cookie.expiresDate, expiresDate < Date() {
+            return false
+        }
         let cookieDomain = CloudflareHostPolicy.normalizedHost(cookie.domain)
         guard !cookieDomain.isEmpty else { return true }
         if host.isEmpty { return true }

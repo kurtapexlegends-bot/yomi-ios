@@ -15,6 +15,8 @@ final class CloudflareTransportTests: XCTestCase {
     func testHostPolicyCanonicalizesDeadMangaKakalotHost() {
         XCTAssertEqual(CloudflareHostPolicy.canonicalHost("mangakakalot.com"), "www.mangakakalot.gg")
         XCTAssertEqual(CloudflareHostPolicy.canonicalHost("WWW.MANGAKAKALOT.COM"), "www.mangakakalot.gg")
+        XCTAssertEqual(CloudflareHostPolicy.canonicalHost("mangakakalot.tv"), "www.mangakakalot.gg")
+        XCTAssertEqual(CloudflareHostPolicy.canonicalHost("mangakakalot.org"), "www.mangakakalot.gg")
         XCTAssertEqual(CloudflareHostPolicy.canonicalHost("www.mangakakalot.gg"), "www.mangakakalot.gg")
     }
 

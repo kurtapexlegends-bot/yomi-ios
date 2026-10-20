@@ -145,7 +145,8 @@ public final class WebViewFetchService: NSObject, WKNavigationDelegate, @uncheck
             frame: CGRect(x: 0, y: 0, width: 390, height: 844),
             configuration: configuration
         )
-        view.customUserAgent = NetworkBridge.defaultUserAgent
+        // Match the solver webview's native Safari runtime so the TLS fingerprint
+        // and browser characteristics match 100%.
         view.navigationDelegate = self
         view.isHidden = true
         webView = view
@@ -225,49 +226,71 @@ public final class WebViewFetchService: NSObject, WKNavigationDelegate, @uncheck
     private func evaluateFetch(request: URLRequest) async -> [String: Any]? {
         guard let view = webView, let url = request.url else { return nil }
 
-        let headers = request.allHTTPHeaderFields ?? [:]
+        // Filter out browser forbidden request headers (User-Agent, Cookie, Referer, Host).
+        // WebKit automatically manages these in the page context with authentic values.
+        var safeHeaders: [String: String] = [:]
+        let forbiddenHeaders: Set<String> = [
+            "user-agent", "cookie", "cookie2", "host", "origin", "referer",
+            "connection", "content-length", "keep-alive", "te", "upgrade"
+        ]
+        for (key, value) in request.allHTTPHeaderFields ?? [:] {
+            if !forbiddenHeaders.contains(key.lowercased()) {
+                safeHeaders[key] = value
+            }
+        }
+
         let method = request.httpMethod ?? "GET"
         let bodyBase64 = request.httpBody?.base64EncodedString() ?? ""
 
         let script = """
-        const options = {
-            method: method,
-            headers: headers,
-            credentials: 'include',
-            redirect: 'follow'
-        };
-        if (bodyBase64 && bodyBase64.length > 0) {
-            const bytes = Uint8Array.from(atob(bodyBase64), c => c.charCodeAt(0));
-            options.body = bytes;
-        }
-        const response = await fetch(url, options);
-        const buffer = await response.arrayBuffer();
-        const bytes = new Uint8Array(buffer);
-        let binary = '';
-        const chunk = 0x8000;
-        for (let i = 0; i < bytes.length; i += chunk) {
-            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-        }
-        let base64String = '';
         try {
-            base64String = btoa(binary);
-        } catch(e) {
-            base64String = '';
+            const options = {
+                method: method,
+                headers: headers,
+                credentials: 'include',
+                redirect: 'follow'
+            };
+            if (bodyBase64 && bodyBase64.length > 0) {
+                const bytes = Uint8Array.from(atob(bodyBase64), c => c.charCodeAt(0));
+                options.body = bytes;
+            }
+            const response = await fetch(url, options);
+            const buffer = await response.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            const chunk = 0x8000;
+            for (let i = 0; i < bytes.length; i += chunk) {
+                binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+            }
+            let base64String = '';
+            try {
+                base64String = btoa(binary);
+            } catch(e) {
+                base64String = '';
+            }
+            const responseHeaders = {};
+            response.headers.forEach((value, key) => { responseHeaders[key.toLowerCase()] = value; });
+            return JSON.stringify({
+                status: response.status,
+                url: response.url,
+                headers: responseHeaders,
+                bodyBase64: base64String
+            });
+        } catch(err) {
+            return JSON.stringify({
+                status: 0,
+                error: String(err),
+                url: url,
+                headers: {},
+                bodyBase64: ""
+            });
         }
-        const responseHeaders = {};
-        response.headers.forEach((value, key) => { responseHeaders[key.toLowerCase()] = value; });
-        return JSON.stringify({
-            status: response.status,
-            url: response.url,
-            headers: responseHeaders,
-            bodyBase64: base64String
-        });
         """
 
         let args: [String: Any] = [
             "url": url.absoluteString,
             "method": method,
-            "headers": headers,
+            "headers": safeHeaders,
             "bodyBase64": bodyBase64
         ]
 

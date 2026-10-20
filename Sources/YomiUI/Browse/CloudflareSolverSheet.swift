@@ -29,9 +29,13 @@ public struct CloudflareSolverSheet: View {
                         CloudflareWebView(url: url, isLoading: $isLoading)
                             .id("\(url.absoluteString)-\(reloadToken)")
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                            .padding(.horizontal, 12)
-                            .padding(.bottom, 8)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(YomiTheme.border, lineWidth: 1)
+                            )
+                            .padding(.horizontal, 14)
+                            .padding(.bottom, 12)
                     } else {
                         Spacer()
                         ProgressView().tint(YomiTheme.accentStrong)
@@ -167,11 +171,15 @@ public struct CloudflareWebView: UIViewRepresentable {
         let bounds = UIScreen.main.bounds
         let initialFrame = bounds.width > 0 ? bounds : CGRect(x: 0, y: 0, width: 390, height: 844)
         let webView = WKWebView(frame: initialFrame, configuration: config)
-        webView.customUserAgent = NetworkBridge.defaultUserAgent
+        // Use native WebKit User-Agent so Cloudflare Turnstile bot verification does not
+        // detect a runtime / UA mismatch and fail to load.
         webView.navigationDelegate = context.coordinator
-        webView.isOpaque = false
-        webView.backgroundColor = .black
-        webView.scrollView.backgroundColor = .black
+        // Cloudflare challenges render with default #313131 text and no explicit body background.
+        // Keeping the webview opaque with a white background ensures Turnstile checkboxes
+        // and verification prompts are 100% visible and interactive.
+        webView.isOpaque = true
+        webView.backgroundColor = .white
+        webView.scrollView.backgroundColor = .white
         CloudflareSolver.shared.activeWebView = webView
 
         context.coordinator.loadingBinding = $isLoading
