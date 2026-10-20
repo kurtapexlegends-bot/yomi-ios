@@ -142,6 +142,7 @@ public struct CloudflareWebView: UIViewRepresentable {
 
         public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             loadingBinding?.wrappedValue = false
+            CloudflareSolver.shared.handleNavigationFinished(webView: webView)
         }
 
         public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

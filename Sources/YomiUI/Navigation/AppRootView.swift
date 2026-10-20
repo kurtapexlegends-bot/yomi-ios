@@ -109,6 +109,8 @@ public struct AppRootView: View {
         #endif
         .safeAreaInset(edge: .bottom, spacing: 0) {
             YomiTabBar(selection: $router.selectedTab)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 6)
         }
     }
 
@@ -153,7 +155,7 @@ public struct AppRootView: View {
     }
 }
 
-// MARK: - Custom tab bar
+// MARK: - Floating tab bar
 
 public struct YomiTabBar: View {
     @Binding public var selection: AppTab
@@ -163,41 +165,56 @@ public struct YomiTabBar: View {
     }
 
     public var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 2) {
             ForEach(AppTab.allCases) { tab in
+                let isSelected = selection == tab
                 Button {
-                    selection = tab
+                    withAnimation(.spring(response: 0.26, dampingFraction: 0.78)) {
+                        selection = tab
+                    }
                 } label: {
                     VStack(spacing: 3) {
-                        Image(systemName: selection == tab ? tab.selectedIconName : tab.iconName)
-                            .font(.system(size: 19, weight: selection == tab ? .semibold : .regular))
-                            .foregroundStyle(selection == tab ? YomiTheme.textPrimary : YomiTheme.textTertiary)
-                            .frame(height: 24)
+                        Image(systemName: isSelected ? tab.selectedIconName : tab.iconName)
+                            .font(.system(size: 18, weight: isSelected ? .semibold : .regular))
+                            .foregroundStyle(isSelected ? YomiTheme.textPrimary : YomiTheme.textTertiary)
+                            .frame(height: 22)
 
                         Text(tab.shortTitle)
-                            .font(.system(size: 10, weight: selection == tab ? .semibold : .regular))
-                            .foregroundStyle(selection == tab ? YomiTheme.textPrimary : YomiTheme.textTertiary)
+                            .font(.system(size: 10, weight: isSelected ? .semibold : .regular))
+                            .foregroundStyle(isSelected ? YomiTheme.textPrimary : YomiTheme.textTertiary)
                     }
                     .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
+                    .padding(.vertical, 7)
+                    .background(
+                        ZStack {
+                            if isSelected {
+                                Capsule()
+                                    .fill(Color.white.opacity(0.08))
+                            }
+                        }
+                    )
+                    .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(tab.rawValue)
-                .accessibilityAddTraits(selection == tab ? .isSelected : [])
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
-        .padding(.top, 7)
-        .padding(.bottom, 2)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
         .background(
             ZStack {
-                Rectangle().fill(.ultraThinMaterial)
-                Rectangle().fill(Color.black.opacity(0.88))
+                Capsule()
+                    .fill(.ultraThinMaterial)
+                Capsule()
+                    .fill(Color(red: 0.08, green: 0.08, blue: 0.10).opacity(0.85))
             }
-            .overlay(alignment: .top) {
-                Rectangle().fill(YomiTheme.border).frame(height: 0.5)
-            }
-            .ignoresSafeArea(edges: .bottom)
         )
+        .overlay(
+            Capsule()
+                .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+        )
+        .shadow(color: Color.black.opacity(0.45), radius: 18, x: 0, y: 8)
     }
 }
 

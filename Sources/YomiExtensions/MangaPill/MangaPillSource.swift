@@ -142,11 +142,11 @@ public final class MangaPillSource: SourceProtocol, Sendable {
             if !desc.isEmpty && !desc.contains("Chapter not found") { updated.description = desc }
         }
 
-        if let coverEl = try doc.select("figure img").first() {
+        if let coverEl = try doc.select("figure img, .detail--cover img, img").first() {
             let thumb = try coverEl.attr("data-src")
             let fallbackThumb = try coverEl.attr("src")
             let coverUrl = !thumb.isEmpty ? thumb : fallbackThumb
-            if !coverUrl.isEmpty { updated.thumbnailUrl = coverUrl }
+            if let normalized = normalizeImageUrl(coverUrl) { updated.thumbnailUrl = normalized }
         }
 
         let genreEls = try doc.select("a[href*='/genre/'], .genres a").array()
@@ -300,6 +300,7 @@ public final class MangaPillSource: SourceProtocol, Sendable {
             let thumb = try imgEl?.attr("data-src") ?? ""
             let fallbackThumb = try imgEl?.attr("src") ?? ""
             let effectiveThumb = !thumb.isEmpty ? thumb : fallbackThumb
+            let normalizedThumb = normalizeImageUrl(effectiveThumb)
 
             // Status heuristic
             let cardText = try card.text().lowercased()
@@ -310,7 +311,7 @@ public final class MangaPillSource: SourceProtocol, Sendable {
                 url: href,
                 title: title,
                 status: status,
-                thumbnailUrl: effectiveThumb.isEmpty ? nil : effectiveThumb
+                thumbnailUrl: normalizedThumb
             )
             mangas.append(manga)
         }
@@ -327,13 +328,14 @@ public final class MangaPillSource: SourceProtocol, Sendable {
 
                 let imgEl = try link.select("img").first()
                 let thumb = try imgEl?.attr("data-src") ?? imgEl?.attr("src") ?? ""
+                let normalizedThumb = normalizeImageUrl(thumb)
 
                 let manga = Manga(
                     sourceId: Self.sourceId,
                     url: href,
                     title: title,
                     status: .ongoing,
-                    thumbnailUrl: thumb.isEmpty ? nil : thumb
+                    thumbnailUrl: normalizedThumb
                 )
                 mangas.append(manga)
             }
@@ -341,5 +343,20 @@ public final class MangaPillSource: SourceProtocol, Sendable {
 
         let hasNext = mangas.count >= 20
         return MangaPageResult(mangas: mangas, hasNextPage: hasNext)
+    }
+
+    private func normalizeImageUrl(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
+            return trimmed
+        }
+        if trimmed.hasPrefix("//") {
+            return "https:" + trimmed
+        }
+        if trimmed.hasPrefix("/") {
+            return baseUrl + trimmed
+        }
+        return "\(baseUrl)/\(trimmed)"
     }
 }

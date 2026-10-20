@@ -248,13 +248,19 @@ public final class WebViewFetchService: NSObject, WKNavigationDelegate, @uncheck
         for (let i = 0; i < bytes.length; i += chunk) {
             binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
         }
+        let base64String = '';
+        try {
+            base64String = btoa(binary);
+        } catch(e) {
+            base64String = '';
+        }
         const responseHeaders = {};
         response.headers.forEach((value, key) => { responseHeaders[key.toLowerCase()] = value; });
         return JSON.stringify({
             status: response.status,
             url: response.url,
             headers: responseHeaders,
-            bodyBase64: binary
+            bodyBase64: base64String
         });
         """
 

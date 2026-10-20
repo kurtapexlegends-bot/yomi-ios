@@ -162,7 +162,26 @@ public final class CloudflareSolver: NSObject, WKNavigationDelegate, @unchecked 
     // MARK: - WKNavigationDelegate
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        inspectChallengeStatus()
+        handleNavigationFinished(webView: webView)
+    }
+
+    @MainActor
+    public func handleNavigationFinished(webView: WKWebView) {
+        if let currentURL = webView.url {
+            let path = currentURL.path.lowercased()
+            let title = (webView.title ?? "").lowercased()
+            let isChallenged = path.contains("challenge-platform")
+                || title.contains("just a moment")
+                || title.contains("attention required")
+                || title.contains("checking your browser")
+
+            if !isChallenged && !title.isEmpty {
+                // Page successfully navigated to genuine content
+                inspectChallengeStatus(forceCompletion: true)
+                return
+            }
+        }
+        inspectChallengeStatus(forceCompletion: false)
     }
 
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -186,7 +205,7 @@ public final class CloudflareSolver: NSObject, WKNavigationDelegate, @unchecked 
 
     // MARK: - Cookie inspection
 
-    private func inspectChallengeStatus(forceCompletion: Bool = false) {
+    public func inspectChallengeStatus(forceCompletion: Bool = false) {
         // Capture the target host and session on the main actor; the callback runs on a WebKit queue.
         let host = challengeHost
         let generation = challengeGeneration
@@ -194,18 +213,12 @@ public final class CloudflareSolver: NSObject, WKNavigationDelegate, @unchecked 
             guard let self = self else { return }
             let clearance = cookies.filter { Self.isClearanceCookie($0, forHost: host) }
 
-            if !clearance.isEmpty {
+            if !clearance.isEmpty || forceCompletion {
                 Task { @MainActor [weak self] in
                     guard let self = self,
                           self.challengeGeneration == generation,
                           self.activeContinuation != nil else { return }
                     self.syncCookiesAndComplete(cookies: cookies, success: true, host: host)
-                }
-            } else if forceCompletion {
-                Task { @MainActor [weak self] in
-                    guard let self = self, self.challengeGeneration == generation else { return }
-                    // Nothing verified yet: keep the sheet open so the user can retry.
-                    self.statusMessage = "Verification not detected yet. Complete the challenge, then tap Done again."
                 }
             }
         }
