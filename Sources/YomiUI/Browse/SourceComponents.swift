@@ -14,21 +14,35 @@ public struct SourceIconView: View {
         self.size = size
     }
 
+    #if canImport(UIKit)
+    @State private var cachedImage: UIImage?
+    #endif
+
     public var body: some View {
-        AsyncImage(url: URL(string: iconUrl ?? "")) { phase in
-            switch phase {
-            case .success(let image):
-                image
+        ZStack {
+            #if canImport(UIKit)
+            if let cachedImage {
+                Image(uiImage: cachedImage)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-            default:
-                ZStack {
-                    YomiTheme.elevatedSurface
-                    Text(initials)
-                        .font(.system(size: size * 0.34, weight: .bold))
-                        .foregroundStyle(YomiTheme.accentStrong)
+            } else {
+                placeholder
+                    .task(id: iconUrl) {
+                        guard let iconUrl, !iconUrl.isEmpty else { return }
+                        let target = CGSize(width: size * 2, height: size * 2)
+                        cachedImage = await YomiImageCache.shared.loadImage(from: iconUrl, targetSize: target)
+                    }
+            }
+            #else
+            AsyncImage(url: URL(string: iconUrl ?? "")) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().aspectRatio(contentMode: .fill)
+                default:
+                    placeholder
                 }
             }
+            #endif
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -36,6 +50,15 @@ public struct SourceIconView: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(YomiTheme.border, lineWidth: 0.5)
         )
+    }
+
+    private var placeholder: some View {
+        ZStack {
+            YomiTheme.elevatedSurface
+            Text(initials)
+                .font(.system(size: size * 0.34, weight: .bold))
+                .foregroundStyle(YomiTheme.accentStrong)
+        }
     }
 
     private var initials: String {

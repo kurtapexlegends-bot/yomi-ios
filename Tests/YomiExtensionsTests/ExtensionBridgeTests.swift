@@ -186,6 +186,53 @@ final class ExtensionBridgeTests: XCTestCase {
         XCTAssertEqual(filters[2].id, "sort")
     }
 
+    func testMangakakalotHtmlParsing() throws {
+        guard let context = JSContext() else {
+            XCTFail("Failed to create JSContext")
+            return
+        }
+        HTMLBridge.inject(into: context)
+        CryptoBridge.inject(into: context)
+        NetworkBridge.inject(into: context)
+
+        let pkg = RemoteExtensionPackage(
+            id: 99999,
+            name: "MangaKakalot",
+            lang: "en",
+            baseUrl: "https://www.mangakakalot.gg",
+            scriptUrl: ""
+        )
+        let script = RepoManager.shared.generateScraperScript(for: pkg)
+        context.evaluateScript(script)
+
+        let sampleHtml = """
+        <div id="contentstory">
+            <div class="itemupdate first">
+                <a class="tooltip cover bookmark_check" href="https://www.mangakakalot.gg/manga/solo-leveling">
+                    <img src="https://example.com/solo.webp" data-src="https://example.com/solo.webp" alt="Solo Leveling">
+                </a>
+                <ul>
+                    <li>
+                        <h3><a href="https://www.mangakakalot.gg/manga/solo-leveling">Solo Leveling</a></h3>
+                    </li>
+                </ul>
+            </div>
+        </div>
+        """
+        context.setObject(sampleHtml, forKeyedSubscript: "__sampleHtml" as NSString)
+        let parseScript = "Extension.parseMangaList(__sampleHtml)"
+        guard let result = context.evaluateScript(parseScript), !result.isUndefined, !result.isNull else {
+            XCTFail("Extension.parseMangaList returned nil or undefined")
+            return
+        }
+        let dict = result.toDictionary() as? [String: Any]
+        let mangas = dict?["mangas"] as? [[String: Any]]
+        XCTAssertEqual(mangas?.count, 1)
+        XCTAssertEqual(mangas?.first?["title"] as? String, "Solo Leveling")
+        XCTAssertEqual(mangas?.first?["url"] as? String, "https://www.mangakakalot.gg/manga/solo-leveling")
+        XCTAssertEqual(mangas?.first?["thumbnailUrl"] as? String, "https://example.com/solo.webp")
+    }
+
     func testMangaDexUUIDExtraction() {
         let regex = try? NSRegularExpression(pattern: "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
         let sampleUrls = [

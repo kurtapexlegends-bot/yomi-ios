@@ -119,7 +119,73 @@ public final class WebViewFetchService: NSObject, WKNavigationDelegate, @uncheck
         }
 
         guard await loadOrigin(origin) else { return nil }
-        return await evaluateFetch(request: request)
+        var result = await evaluateFetch(request: request)
+
+        // If in-page JS fetch was rejected by Cloudflare or CORS, fallback to authentic top-level
+        // WebKit navigation for GET requests. Genuine browser navigation auto-solves non-interactive
+        // Turnstile interstitials and attaches document-level headers.
+        let isBlocked = result == nil || result?["isCloudflare"] as? Bool == true || (result?["status"] as? Int ?? 0) >= 400
+        let isGet = (request.httpMethod ?? "GET").uppercased() == "GET"
+        let hasNoBody = request.httpBody == nil || request.httpBody?.isEmpty == true
+
+        if isBlocked && isGet && hasNoBody {
+            if let navigatedResult = await navigateAndExtractHTML(url: url) {
+                result = navigatedResult
+            }
+        }
+
+        return result
+    }
+
+    /// Genuine top-level browser navigation fallback for protected HTML pages.
+    @MainActor
+    private func navigateAndExtractHTML(url: URL) async -> [String: Any]? {
+        let view = ensureWebView()
+        loadedOrigin = nil
+
+        navigationTimeout?.cancel()
+        navigationTimeout = nil
+        navigationContinuation?.resume(returning: false)
+        navigationContinuation = nil
+
+        let success = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            navigationContinuation = continuation
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 20
+            req.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
+            req.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
+            view.load(req)
+
+            navigationTimeout = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
+                guard !Task.isCancelled else { return }
+                self?.finishNavigation(success: false)
+            }
+        }
+
+        guard success else { return nil }
+        // Brief pause to allow any Turnstile script or dynamic DOM to stabilize
+        try? await Task.sleep(nanoseconds: 350_000_000)
+
+        guard let htmlObj = try? await view.evaluateJavaScript("document.documentElement.outerHTML"),
+              let html = htmlObj as? String, !html.isEmpty else {
+            return nil
+        }
+
+        let isChallenge = CloudflareResponseDetector.isChallenge(
+            statusCode: 200,
+            headers: ["content-type": "text/html"],
+            body: html
+        )
+
+        return [
+            "status": 200,
+            "headers": ["content-type": "text/html; charset=UTF-8"],
+            "body": html,
+            "bodyBase64": (html.data(using: .utf8)?.base64EncodedString() ?? ""),
+            "url": view.url?.absoluteString ?? url.absoluteString,
+            "isCloudflare": isChallenge
+        ]
     }
 
     /// Drops the hidden browser so the next fetch starts from a clean page and cookie state.

@@ -3,15 +3,20 @@ import YomiCore
 import YomiDatabase
 import YomiExtensions
 
-/// Sleek, minimalist extension store for discovering, installing, and managing community sources.
+/// Sleek, minimalist, high-performance extension store with virtualization and 120 FPS pagination.
 public struct ExtensionStoreView: View {
     @State private var repos: [ExtensionRepo] = []
     @State private var availablePackages: [RemoteExtensionPackage] = []
+    @State private var cachedGroups: [ExtensionCatalogGroup] = []
+    @State private var installedSourceIds: Set<Int64> = []
+    @State private var installedVersions: [Int64: String] = [:]
+
     @State private var selectedLanguages: [String: String] = [:]
     @State private var installingPackageIds: Set<Int64> = []
     @State private var searchQuery: String = ""
     @State private var languageFilter: String = "all"
     @State private var storeFilter: StoreFilter = .all
+    @State private var displayLimit: Int = 60
     @State private var isLoading: Bool = true
     @State private var isRefreshing: Bool = false
     @State private var errorMessage: String?
@@ -27,17 +32,13 @@ public struct ExtensionStoreView: View {
         self.embedded = embedded
     }
 
-    private var groups: [ExtensionCatalogGroup] {
-        ExtensionCatalog.group(availablePackages)
-    }
-
     private var languages: [String] {
         let values = Set(availablePackages.map { $0.lang.lowercased() })
         return ["all"] + values.sorted()
     }
 
     private var filteredGroups: [ExtensionCatalogGroup] {
-        var result = groups
+        var result = cachedGroups
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         if !query.isEmpty {
             result = result.filter { group in
@@ -60,24 +61,46 @@ public struct ExtensionStoreView: View {
         case .all:
             break
         case .installed:
-            result = result.filter { hasAnyInstalledVariant($0) }
+            result = result.filter { group in
+                group.variants.contains { installedSourceIds.contains($0.id) }
+            }
         case .updates:
-            result = result.filter { isUpdateAvailable($0) }
+            result = result.filter { group in
+                group.variants.contains { variant in
+                    if let cur = installedVersions[variant.id] {
+                        return cur != variant.version
+                    }
+                    return false
+                }
+            }
         case .nsfw:
             result = result.filter(\.isNsfw)
         }
         return result
     }
 
+    private var displayedGroups: [ExtensionCatalogGroup] {
+        Array(filteredGroups.prefix(displayLimit))
+    }
+
     private var updateGroups: [ExtensionCatalogGroup] {
-        groups.filter { isUpdateAvailable($0) }
+        cachedGroups.filter { group in
+            group.variants.contains { variant in
+                if let cur = installedVersions[variant.id] {
+                    return cur != variant.version
+                }
+                return false
+            }
+        }
     }
 
     public var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 14) {
+            LazyVStack(alignment: .leading, spacing: 8) {
                 topControls
+                    .padding(.bottom, 4)
                 filtersBar
+                    .padding(.bottom, 6)
 
                 if let errorMessage {
                     errorBanner(errorMessage)
@@ -90,9 +113,34 @@ public struct ExtensionStoreView: View {
                     emptyState
                 } else {
                     if (storeFilter == .all || storeFilter == .updates) && !updateGroups.isEmpty && searchQuery.isEmpty {
-                        updatesSection
+                        YomiSectionHeader("Updates Available", subtitle: "\(updateGroups.count) pending")
+                        ForEach(updateGroups) { group in
+                            makeRow(for: group)
+                        }
                     }
-                    catalogSection
+
+                    YomiSectionHeader(
+                        storeFilter == .installed ? "Installed Extensions" : "Available Extensions",
+                        subtitle: "\(filteredGroups.count) package\(filteredGroups.count == 1 ? "" : "s")"
+                    )
+
+                    ForEach(displayedGroups) { group in
+                        makeRow(for: group)
+                    }
+
+                    if displayedGroups.count < filteredGroups.count {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .tint(YomiTheme.accentStrong)
+                                .scaleEffect(0.8)
+                                .padding(.vertical, 16)
+                            Spacer()
+                        }
+                        .onAppear {
+                            displayLimit += 60
+                        }
+                    }
                 }
             }
             .padding(.horizontal, YomiTheme.contentPadding)
@@ -114,9 +162,22 @@ public struct ExtensionStoreView: View {
         .sheet(isPresented: $isShowingInstalledSources) {
             SourceManagementSheet {
                 extensionManager.reloadInstalledSources()
+                refreshInstalledCache()
             }
         }
-        .task { await loadStore() }
+        .task {
+            refreshInstalledCache()
+            await loadStore()
+        }
+        .onChange(of: searchQuery) { _, _ in
+            displayLimit = 60
+        }
+        .onChange(of: languageFilter) { _, _ in
+            displayLimit = 60
+        }
+        .onChange(of: storeFilter) { _, _ in
+            displayLimit = 60
+        }
     }
 
     // MARK: - Subviews
@@ -205,37 +266,14 @@ public struct ExtensionStoreView: View {
         }
     }
 
-    private var updatesSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            YomiSectionHeader("Updates Available", subtitle: "\(updateGroups.count) pending")
-            VStack(spacing: 8) {
-                ForEach(updateGroups) { group in
-                    makeRow(for: group)
-                }
-            }
-        }
-    }
-
-    private var catalogSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            YomiSectionHeader(
-                storeFilter == .installed ? "Installed Extensions" : "Available Extensions",
-                subtitle: "\(filteredGroups.count) package\(filteredGroups.count == 1 ? "" : "s")"
-            )
-
-            VStack(spacing: 8) {
-                ForEach(filteredGroups) { group in
-                    makeRow(for: group)
-                }
-            }
-        }
-    }
-
     private func makeRow(for group: ExtensionCatalogGroup) -> some View {
         let variant = selectedVariant(for: group)
-        let isInstalled = variant.map { isSourceInstalled($0.id) } ?? false
-        let hasOther = hasAnyInstalledVariant(group) && !isInstalled
-        let hasUpdate = isUpdateAvailable(group)
+        let isInstalled = variant.map { installedSourceIds.contains($0.id) } ?? false
+        let hasOther = group.variants.contains { installedSourceIds.contains($0.id) } && !isInstalled
+        let hasUpdate = group.variants.contains { v in
+            if let cur = installedVersions[v.id] { return cur != v.version }
+            return false
+        }
         let isInstalling = variant.map { installingPackageIds.contains($0.id) } ?? false
 
         return ExtensionRowView(
@@ -288,33 +326,26 @@ public struct ExtensionStoreView: View {
 
     // MARK: - State Helpers
 
+    private func refreshInstalledCache() {
+        let sources = extensionManager.installedSources
+        installedSourceIds = Set(sources.map { $0.manifest.id })
+        var versions: [Int64: String] = [:]
+        for s in sources {
+            versions[s.manifest.id] = s.manifest.version
+        }
+        installedVersions = versions
+    }
+
     private func selectedVariant(for group: ExtensionCatalogGroup) -> RemoteExtensionPackage? {
         guard let defaultVariant = group.defaultVariant else { return nil }
         if let language = selectedLanguages[group.packageKey],
            let chosen = group.variants.first(where: { $0.lang == language }) {
             return chosen
         }
-        if let installed = group.variants.first(where: { isSourceInstalled($0.id) }) {
+        if let installed = group.variants.first(where: { installedSourceIds.contains($0.id) }) {
             return installed
         }
         return defaultVariant
-    }
-
-    private func isSourceInstalled(_ sourceId: Int64) -> Bool {
-        extensionManager.installedSources.contains { $0.manifest.id == sourceId }
-    }
-
-    private func hasAnyInstalledVariant(_ group: ExtensionCatalogGroup) -> Bool {
-        group.variants.contains { isSourceInstalled($0.id) }
-    }
-
-    private func isUpdateAvailable(_ group: ExtensionCatalogGroup) -> Bool {
-        group.variants.contains { variant in
-            guard let installed = extensionManager.installedSources.first(where: { $0.manifest.id == variant.id }) else {
-                return false
-            }
-            return installed.manifest.version != variant.version
-        }
     }
 
     // MARK: - Data Loading
@@ -352,8 +383,12 @@ public struct ExtensionStoreView: View {
                 }
             }
 
-            availablePackages = Array(collected.values)
-            if availablePackages.isEmpty && !repos.isEmpty {
+            let packages = Array(collected.values)
+            availablePackages = packages
+            cachedGroups = ExtensionCatalog.group(packages)
+            refreshInstalledCache()
+
+            if packages.isEmpty && !repos.isEmpty {
                 errorMessage = "Could not reach repository servers. Check network connection."
             } else if failures > 0 {
                 errorMessage = "\(failures) repository could not be loaded."
@@ -374,6 +409,7 @@ public struct ExtensionStoreView: View {
             do {
                 _ = try await repoManager.installExtension(package: package)
                 extensionManager.reloadInstalledSources()
+                refreshInstalledCache()
             } catch {
                 errorMessage = "Install failed: \(error.localizedDescription)"
             }

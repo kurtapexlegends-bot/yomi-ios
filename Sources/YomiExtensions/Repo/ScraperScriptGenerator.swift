@@ -6,11 +6,17 @@ enum ScraperScriptGenerator {
     
     static func generateScraperScript(for package: RemoteExtensionPackage) -> String {
         let isMangakakalot = package.baseUrl.lowercased().contains("mangakakalot") || package.name.lowercased().contains("mangakakalot")
-        let baseUrl = package.baseUrl.isEmpty ? (isMangakakalot ? "https://www.mangakakalot.gg" : "https://mangapill.com") : package.baseUrl
+        var baseUrl = package.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        while baseUrl.hasSuffix("/") { baseUrl.removeLast() }
 
         if isMangakakalot {
+            if baseUrl.isEmpty || baseUrl.contains("mangakakalot.com") || baseUrl.contains("mangakakalot.tv") || baseUrl.contains("mangakakalot.org") {
+                baseUrl = "https://www.mangakakalot.gg"
+            }
             return generateMangakakalotScript(baseUrl: baseUrl)
         }
+
+        if baseUrl.isEmpty { baseUrl = "https://mangapill.com" }
         return generateGenericScript(baseUrl: baseUrl)
     }
 
@@ -52,13 +58,15 @@ enum ScraperScriptGenerator {
             },
 
             getPopularManga: async function(page) {
-                const resp = await fetch(`${BASE_URL}/manga-list/hot-manga?page=${page}`);
+                const url = (page <= 1) ? BASE_URL : `${BASE_URL}/manga-list/hot-manga?page=${page}`;
+                const resp = await fetch(url);
                 const html = await resp.text();
                 return this.parseMangaList(html);
             },
 
             getLatestUpdates: async function(page) {
-                const resp = await fetch(`${BASE_URL}/manga-list/latest-manga?page=${page}`);
+                const url = (page <= 1) ? BASE_URL : `${BASE_URL}/manga-list/latest-manga?page=${page}`;
+                const resp = await fetch(url);
                 const html = await resp.text();
                 return this.parseMangaList(html);
             },
@@ -106,28 +114,39 @@ enum ScraperScriptGenerator {
             },
 
             parseMangaList: function(html) {
-                const items = __yomi_selectAll(html, ".list-comic-item-wrap, .list-story-item, .slide-caption, .item, a.list-story-item");
+                const items = __yomi_selectAll(html, ".itemupdate, .list-truyen-item-wrap, .list-comic-item-wrap, .list-story-item, .content-genres-item, .story_item, .item");
                 const mangas = [];
                 const seen = new Set();
                 for (const item of items) {
-                    const link = __yomi_attr(item, "a[href*='/manga/']", "href") || __yomi_attr(item, "", "href");
+                    let link = __yomi_attr(item, "a[href*='/manga/']", "href") ||
+                               __yomi_attr(item, "a.cover", "href") ||
+                               __yomi_attr(item, "a.tooltip", "href") ||
+                               __yomi_attr(item, "h3 a", "href") ||
+                               __yomi_attr(item, "a", "href");
                     if (!link || link.includes("/chapter") || seen.has(link)) continue;
+                    if (!link.startsWith("http")) {
+                        link = `${BASE_URL}${link.startsWith('/') ? '' : '/'}${link}`;
+                    }
                     seen.add(link);
 
                     let title = __yomi_attr(item, "a[href*='/manga/']", "title") ||
                                 __yomi_text(item, "h3 a, a.item-title, h3, h4, .title") ||
+                                __yomi_attr(item, "img", "alt") ||
                                 __yomi_attr(item, "", "title") ||
                                 __yomi_text(item, "");
                     title = (title || "").trim();
                     if (!title) continue;
 
-                    const thumb = __yomi_attr(item, "img", "data-src") ||
-                                  __yomi_attr(item, "img", "data-lazy-src") ||
-                                  __yomi_attr(item, "img", "src");
+                    let thumb = __yomi_attr(item, "img", "data-src") ||
+                                __yomi_attr(item, "img", "data-lazy-src") ||
+                                __yomi_attr(item, "img", "src");
+                    if (thumb && !thumb.startsWith("http")) {
+                        thumb = `${BASE_URL}${thumb.startsWith('/') ? '' : '/'}${thumb}`;
+                    }
 
                     mangas.push({ url: link, title: title, thumbnailUrl: thumb });
                 }
-                return { mangas, hasNextPage: mangas.length >= 20 };
+                return { mangas, hasNextPage: mangas.length >= 15 };
             },
 
             getMangaDetails: async function(url) {
@@ -136,7 +155,10 @@ enum ScraperScriptGenerator {
                 const html = await resp.text();
                 const title = __yomi_text(html, "h1, .story-info-right h1, .manga-info-top h1") || "Manga";
                 const desc = __yomi_text(html, "#panel-story-info-description, .panel-story-info-description, .story-info-right-extent") || "";
-                const thumb = __yomi_attr(html, ".story-info-left img, .info-image img, .manga-info-top img", "src");
+                let thumb = __yomi_attr(html, ".story-info-left img, .info-image img, .manga-info-top img", "src");
+                if (thumb && !thumb.startsWith("http")) {
+                    thumb = `${BASE_URL}${thumb.startsWith('/') ? '' : '/'}${thumb}`;
+                }
                 return {
                     title: title.trim(),
                     description: desc.trim(),
@@ -149,14 +171,17 @@ enum ScraperScriptGenerator {
                 const fullUrl = url.startsWith("http") ? url : `${BASE_URL}${url}`;
                 const resp = await fetch(fullUrl);
                 const html = await resp.text();
-                const links = __yomi_selectAll(html, ".row-content-chapter li a, .chapter-name, a[href*='/chapter']");
+                const links = __yomi_selectAll(html, ".row-content-chapter li a, .chapter-list a, .chapter-name, a[href*='/chapter']");
                 const chapters = [];
                 const seen = new Set();
 
                 for (let idx = 0; idx < links.length; idx++) {
                     const link = links[idx];
-                    const chUrl = __yomi_attr(link, "", "href");
+                    let chUrl = __yomi_attr(link, "", "href");
                     if (!chUrl || seen.has(chUrl)) continue;
+                    if (!chUrl.startsWith("http")) {
+                        chUrl = `${BASE_URL}${chUrl.startsWith('/') ? '' : '/'}${chUrl}`;
+                    }
                     seen.add(chUrl);
 
                     const name = __yomi_text(link, "") || `Chapter ${links.length - idx}`;

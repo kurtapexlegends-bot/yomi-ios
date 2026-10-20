@@ -46,8 +46,27 @@ public final class ExtensionManager: @unchecked Sendable {
                     guard fileManager.fileExists(atPath: metaURL.path),
                           let metaData = try? Data(contentsOf: metaURL),
                           let manifest = try? JSONDecoder().decode(SourceManifest.self, from: metaData),
-                          let scriptContent = try? String(contentsOf: jsURL, encoding: .utf8) else {
+                          var scriptContent = try? String(contentsOf: jsURL, encoding: .utf8) else {
                         continue
+                    }
+
+                    // Self-heal MangaKakalot scrapers to include modern DOM selectors (.itemupdate)
+                    let isMangaKakalot = manifest.baseUrl.lowercased().contains("mangakakalot") || manifest.name.lowercased().contains("mangakakalot")
+                    if isMangaKakalot {
+                        let pkg = RemoteExtensionPackage(
+                            id: manifest.id,
+                            name: manifest.name,
+                            lang: manifest.lang,
+                            baseUrl: manifest.baseUrl,
+                            iconUrl: manifest.iconUrl,
+                            version: manifest.version,
+                            scriptUrl: ""
+                        )
+                        let freshScript = ScraperScriptGenerator.generateScraperScript(for: pkg)
+                        if freshScript != scriptContent {
+                            try? freshScript.write(to: jsURL, atomically: true, encoding: .utf8)
+                            scriptContent = freshScript
+                        }
                     }
 
                     let jsExtension = JSExtension(manifest: manifest, scriptContent: scriptContent)
