@@ -264,6 +264,10 @@ public final class JSExtension: SourceProtocol, @unchecked Sendable {
             request.setValue("https://mangapill.com/", forHTTPHeaderField: "Referer")
         } else if host.contains("mangakakalot") || host.contains("mangakakalove") || host.contains("2xstorage") || host.contains("waitst") {
             request.setValue("https://www.mangakakalove.com/", forHTTPHeaderField: "Referer")
+        } else if host.contains("asurascans") || host.contains("asuracomic") {
+            request.setValue("https://asurascans.com/", forHTTPHeaderField: "Referer")
+        } else if host.contains("flamecomics") {
+            request.setValue("https://flamecomics.xyz/", forHTTPHeaderField: "Referer")
         } else {
             var base = manifest.baseUrl
             if !base.hasSuffix("/") { base += "/" }

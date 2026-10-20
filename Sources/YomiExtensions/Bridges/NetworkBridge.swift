@@ -14,9 +14,12 @@ public enum NetworkBridge {
 
             // Canonicalize MangaKakalot domains to non-challenged mirror (mangakakalove.com)
             let rawHost = url.host?.lowercased() ?? ""
-            if rawHost == "mangakakalot.com" || rawHost.hasSuffix(".mangakakalot.com") || rawHost == "mangakakalot.gg" || rawHost == "www.mangakakalot.gg" {
+            if rawHost == "mangakakalot.com" || rawHost.hasSuffix(".mangakakalot.com") || rawHost == "mangakakalot.gg" || rawHost == "www.mangakakalot.gg" || rawHost == "mangakakalove.com" || rawHost == "www.mangakakalove.com" {
                 var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
                 components?.host = "www.mangakakalove.com"
+                if let p = components?.path, p.hasPrefix("/chapter/") {
+                    components?.path = "/manga/" + p.dropFirst("/chapter/".count)
+                }
                 if let canonical = components?.url { url = canonical }
             }
 
@@ -39,6 +42,10 @@ public enum NetworkBridge {
                     request.setValue("https://www.mangakakalove.com/", forHTTPHeaderField: "Referer")
                 } else if host.contains("readdetectiveconan.com") || host.contains("mangapill.com") {
                     request.setValue("https://mangapill.com/", forHTTPHeaderField: "Referer")
+                } else if host.contains("asurascans") || host.contains("asuracomic") {
+                    request.setValue("https://asurascans.com/", forHTTPHeaderField: "Referer")
+                } else if host.contains("flamecomics") {
+                    request.setValue("https://flamecomics.xyz/", forHTTPHeaderField: "Referer")
                 } else if let scheme = url.scheme, !host.isEmpty {
                     request.setValue("\(scheme)://\(host)/", forHTTPHeaderField: "Referer")
                 }
@@ -119,12 +126,15 @@ public enum NetworkBridge {
 
     private static func normalizeURLString(_ value: String) -> String {
         var normalized = value
-        if normalized.contains("mangakakalot") {
+        if normalized.contains("mangakakalot") || normalized.contains("mangakakalove") {
             normalized = normalized
                 .replacingOccurrences(of: "://www.mangakakalot.com", with: "://www.mangakakalove.com")
                 .replacingOccurrences(of: "://mangakakalot.com", with: "://www.mangakakalove.com")
                 .replacingOccurrences(of: "://www.mangakakalot.gg", with: "://www.mangakakalove.com")
                 .replacingOccurrences(of: "://mangakakalot.gg", with: "://www.mangakakalove.com")
+            if normalized.contains("mangakakalove.com/chapter/") {
+                normalized = normalized.replacingOccurrences(of: "mangakakalove.com/chapter/", with: "mangakakalove.com/manga/")
+            }
         }
         return normalized
     }

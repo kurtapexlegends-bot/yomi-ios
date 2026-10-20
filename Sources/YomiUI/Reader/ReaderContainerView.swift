@@ -85,50 +85,35 @@ public struct ReaderContainerView: View {
     private var viewerPreference: Binding<MangaViewer> {
         Binding(
             get: { self.viewer },
-            set: { newValue in
-                self.viewer = newValue
-                UserDefaults.standard.set(newValue.rawValue, forKey: "yomi.reader.defaultViewer")
-            }
+            set: { self.viewer = $0; UserDefaults.standard.set($0.rawValue, forKey: "yomi.reader.defaultViewer") }
         )
     }
 
     private var autocropPreference: Binding<Bool> {
         Binding(
             get: { self.isAutocropEnabled },
-            set: { newValue in
-                self.isAutocropEnabled = newValue
-                UserDefaults.standard.set(newValue, forKey: "yomi.reader.autocrop")
-            }
+            set: { self.isAutocropEnabled = $0; UserDefaults.standard.set($0, forKey: "yomi.reader.autocrop") }
         )
     }
 
     private var invertPreference: Binding<Bool> {
         Binding(
             get: { self.isInvertColorsEnabled },
-            set: { newValue in
-                self.isInvertColorsEnabled = newValue
-                UserDefaults.standard.set(newValue, forKey: "yomi.reader.invert")
-            }
+            set: { self.isInvertColorsEnabled = $0; UserDefaults.standard.set($0, forKey: "yomi.reader.invert") }
         )
     }
 
     private var brightnessPreference: Binding<CGFloat> {
         Binding(
             get: { self.customBrightness },
-            set: { newValue in
-                self.customBrightness = newValue
-                UserDefaults.standard.set(Double(newValue), forKey: "yomi.reader.brightness")
-            }
+            set: { self.customBrightness = $0; UserDefaults.standard.set(Double($0), forKey: "yomi.reader.brightness") }
         )
     }
 
     private var tapZonePreference: Binding<TapZoneLayout> {
         Binding(
             get: { self.tapZoneLayout },
-            set: { newValue in
-                self.tapZoneLayout = newValue
-                UserDefaults.standard.set(newValue.rawValue, forKey: "yomi.reader.tapZones")
-            }
+            set: { self.tapZoneLayout = $0; UserDefaults.standard.set($0.rawValue, forKey: "yomi.reader.tapZones") }
         )
     }
 
@@ -275,7 +260,17 @@ public struct ReaderContainerView: View {
         pageLoadTask?.cancel()
         pageLoadGeneration += 1
         let generation = pageLoadGeneration
-        let requestedChapter = chapter
+        var requestedChapter = chapter
+        if requestedChapter.url.contains("mangakakalot") || requestedChapter.url.contains("mangakakalove") {
+            requestedChapter.url = requestedChapter.url
+                .replacingOccurrences(of: "://www.mangakakalot.com", with: "://www.mangakakalove.com")
+                .replacingOccurrences(of: "://mangakakalot.com", with: "://www.mangakakalove.com")
+                .replacingOccurrences(of: "://www.mangakakalot.gg", with: "://www.mangakakalove.com")
+                .replacingOccurrences(of: "://mangakakalot.gg", with: "://www.mangakakalove.com")
+            if requestedChapter.url.contains("mangakakalove.com/chapter/") {
+                requestedChapter.url = requestedChapter.url.replacingOccurrences(of: "mangakakalove.com/chapter/", with: "mangakakalove.com/manga/")
+            }
+        }
 
         isLoading = true
         localSource = nil

@@ -186,15 +186,18 @@ public struct ReaderOverlayView: View {
         }
         .padding(.horizontal, 14)
         .padding(.top, 8)
-        .padding(.bottom, 16)
+        .padding(.bottom, 12)
         .background(
-            LinearGradient(
-                colors: [.black.opacity(0.88), .black.opacity(0.55), .clear],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+            ZStack {
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                Color.black.opacity(0.65)
+            }
             .ignoresSafeArea(edges: .top)
         )
+        .overlay(alignment: .bottom) {
+            Divider().background(Color.white.opacity(0.10))
+        }
     }
 
     // MARK: - Bottom
@@ -262,16 +265,19 @@ public struct ReaderOverlayView: View {
             }
         }
         .padding(.horizontal, 14)
-        .padding(.top, 18)
+        .padding(.top, 14)
         .padding(.bottom, 10)
         .background(
-            LinearGradient(
-                colors: [.clear, .black.opacity(0.62), .black.opacity(0.92)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+            ZStack {
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                Color.black.opacity(0.70)
+            }
             .ignoresSafeArea(edges: .bottom)
         )
+        .overlay(alignment: .top) {
+            Divider().background(Color.white.opacity(0.10))
+        }
     }
 
     private var pageScrubber: some View {
@@ -282,7 +288,8 @@ public struct ReaderOverlayView: View {
                     .tracking(1.4)
                     .foregroundStyle(.white.opacity(0.52))
                 Spacer()
-                Text("\(safePage + 1) / \(pageCount)")
+                let pct = pageCount > 0 ? Int((Double(safePage + 1) / Double(pageCount)) * 100) : 0
+                Text("\(safePage + 1) / \(pageCount) (\(pct)%)")
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundStyle(.white)
             }

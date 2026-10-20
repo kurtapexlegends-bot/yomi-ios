@@ -55,17 +55,31 @@ public enum YomiFont {
 }
 
 public struct GlassCardModifier: ViewModifier {
-    public init() {}
+    public var cornerRadius: CGFloat
+    public var strokeColor: Color
+
+    public init(
+        cornerRadius: CGFloat = YomiTheme.cornerRadiusMedium,
+        strokeColor: Color = YomiTheme.borderStrong
+    ) {
+        self.cornerRadius = cornerRadius
+        self.strokeColor = strokeColor
+    }
 
     public func body(content: Content) -> some View {
         content
             .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: YomiTheme.cornerRadiusMedium, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(strokeColor, lineWidth: 0.5)
+            )
+            .shadow(color: Color.black.opacity(0.35), radius: 12, x: 0, y: 5)
     }
 }
 
 public extension View {
-    func glassCard() -> some View {
-        modifier(GlassCardModifier())
+    func glassCard(cornerRadius: CGFloat = YomiTheme.cornerRadiusMedium, strokeColor: Color = YomiTheme.borderStrong) -> some View {
+        modifier(GlassCardModifier(cornerRadius: cornerRadius, strokeColor: strokeColor))
     }
 }
