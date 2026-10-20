@@ -96,7 +96,7 @@ public struct ExtensionStoreView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .toolbar(embedded ? .hidden : .visible, for: .navigationBar)
+        .yomiNavigationBarHidden(embedded)
         .sheet(isPresented: $isShowingRepositories) {
             ExtensionRepositorySheet {
                 Task { await loadStore(forceRefresh: true) }

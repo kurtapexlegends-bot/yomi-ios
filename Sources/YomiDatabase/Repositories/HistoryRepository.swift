@@ -128,6 +128,13 @@ public final class HistoryRepository: Sendable {
         }
     }
 
+    /// Number of recorded history entries without materializing the full joined rows.
+    public func getHistoryCount() async throws -> Int {
+        try await dbManager.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM history") ?? 0
+        }
+    }
+
     /// Deletes a specific history record by primary key.
     public func deleteHistoryItem(id: Int64) async throws {
         try await dbManager.write { db in

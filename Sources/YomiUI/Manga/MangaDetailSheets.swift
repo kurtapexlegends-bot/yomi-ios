@@ -238,6 +238,7 @@ struct MangaTrackingSheet: View {
     @State private var errorMessage: String?
 
     private let trackRepo = TrackRepository()
+    private let chapterRepo = ChapterRepository()
     private let aniList = AniListClient.shared
 
     var body: some View {
@@ -296,7 +297,7 @@ struct MangaTrackingSheet: View {
                 Text("AniList is not connected")
                     .font(YomiFont.caption.weight(.bold))
                     .foregroundStyle(YomiTheme.textPrimary)
-                Text("You can still link a title locally. Connect AniList in Settings → Tracking to sync progress.")
+                Text("Connect AniList in Settings → Tracking to search for this title, link it, and sync reading progress.")
                     .font(YomiFont.caption)
                     .foregroundStyle(YomiTheme.textSecondary)
                     .lineSpacing(2)
@@ -487,12 +488,13 @@ struct MangaTrackingSheet: View {
 
         Task {
             do {
+                let progress = await localChapterProgress()
                 let track = Track(
                     mangaId: mangaId,
                     syncId: TrackerServiceType.aniList.rawValue,
                     remoteId: result.id,
                     title: result.title,
-                    lastChapterRead: 0,
+                    lastChapterRead: progress,
                     totalChapters: result.totalChapters,
                     score: 0,
                     status: .reading,
@@ -521,17 +523,31 @@ struct MangaTrackingSheet: View {
         syncingTrackId = track.id
         Task {
             do {
+                let progress = max(track.lastChapterRead, await localChapterProgress())
                 try await aniList.updateProgress(
                     mediaId: track.remoteId,
-                    chapterProgress: Int(track.lastChapterRead),
+                    chapterProgress: Int(progress),
                     status: track.status,
                     score: track.score
                 )
+                var updated = track
+                updated.lastChapterRead = progress
+                _ = try? await trackRepo.upsertTrack(updated)
+                await loadTracks()
             } catch {
                 errorMessage = error.localizedDescription
             }
             syncingTrackId = nil
         }
+    }
+
+    /// Highest locally completed chapter, used when linking and when manually pushing progress.
+    private func localChapterProgress() async -> Float {
+        guard let mangaId = manga.id,
+              let chapters = try? await chapterRepo.getChapters(forMangaId: mangaId) else {
+            return 0
+        }
+        return chapters.filter(\.read).map(\.chapterNumber).max() ?? 0
     }
 
     private func remove(_ track: Track) {

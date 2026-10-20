@@ -331,17 +331,17 @@ public struct MoreView: View {
     private func loadStats() async {
         async let mangas = try? mangaRepo.getLibraryMangas()
         async let progress = try? chapterRepo.getLibraryProgress()
-        async let history = try? historyRepo.getHistory(limit: 1)
+        async let history = try? historyRepo.getHistoryCount()
 
         let loadedMangas = await mangas ?? []
         let loadedProgress = await progress ?? [:]
-        let loadedHistory = await history ?? []
+        let loadedHistoryCount = await history ?? 0
 
         await MainActor.run {
             libraryCount = loadedMangas.count
             chaptersRead = loadedProgress.values.reduce(0) { $0 + $1.readChapters }
             downloadedBytes = downloadManager.totalDownloadedBytes()
-            historyCount = loadedHistory.count
+            historyCount = loadedHistoryCount
             isLoadingStats = false
         }
     }

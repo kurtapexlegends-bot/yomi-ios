@@ -27,6 +27,8 @@ public struct ReaderContainerView: View {
     @State private var localSource: (any SourceProtocol)? = nil
     @State private var allChapters: [Chapter] = []
     @State private var isBookmarked: Bool = false
+    @State private var pageLoadGeneration: Int = 0
+    @State private var pageLoadTask: Task<Void, Never>?
 
     private let chapterRepo = ChapterRepository()
     private let trackRepo = TrackRepository()
@@ -177,6 +179,9 @@ public struct ReaderContainerView: View {
             loadChapters()
             loadPages()
         }
+        .onDisappear {
+            pageLoadTask?.cancel()
+        }
         .onChange(of: viewer) { _, newValue in
             UserDefaults.standard.set(newValue.rawValue, forKey: "yomi.reader.defaultViewer")
         }
@@ -198,40 +203,58 @@ public struct ReaderContainerView: View {
     }
 
     private func loadPages() {
+        pageLoadTask?.cancel()
+        pageLoadGeneration += 1
+        let generation = pageLoadGeneration
+        let requestedChapter = chapter
+
         isLoading = true
         localSource = nil
-        Task { @MainActor in
-            // Check if downloaded .cbz archive exists
-            if let chId = chapter.id, let mId = manga.id,
+        pages = []
+        errorMessage = nil
+
+        pageLoadTask = Task { @MainActor in
+            func isCurrent() -> Bool {
+                generation == pageLoadGeneration
+                    && !Task.isCancelled
+                    && (chapter.id == requestedChapter.id || chapter.url == requestedChapter.url)
+            }
+
+            // Check if a downloaded .cbz archive exists.
+            if let chId = requestedChapter.id, let mId = manga.id,
                let cbzURL = downloadManager.getDownloadedCBZURL(chapterId: chId, mangaId: mId),
                FileManager.default.fileExists(atPath: cbzURL.path) {
                 if let local = try? LocalCBZSource(archiveURL: cbzURL), !local.pages.isEmpty {
+                    guard isCurrent() else { return }
                     self.localSource = local
                     self.pages = local.pages
-                    self.currentPage = max(0, min(chapter.lastPageRead, local.pages.count - 1))
+                    self.currentPage = max(0, min(requestedChapter.lastPageRead, local.pages.count - 1))
                     self.errorMessage = nil
                     self.isLoading = false
                     return
                 }
             }
 
-            // Fetch remote pages from source
+            // Fetch remote pages from the source.
             do {
                 if let src = extensionManager.getSource(id: manga.sourceId) {
-                    let fetchedPages = try await src.getPageList(chapter: chapter)
+                    let fetchedPages = try await src.getPageList(chapter: requestedChapter)
+                    guard isCurrent() else { return }
                     if !fetchedPages.isEmpty {
                         self.pages = fetchedPages
-                        self.currentPage = max(0, min(chapter.lastPageRead, fetchedPages.count - 1))
+                        self.currentPage = max(0, min(requestedChapter.lastPageRead, fetchedPages.count - 1))
                         self.errorMessage = nil
                     } else {
                         self.pages = []
                         self.errorMessage = "This chapter contains no hosted images on \(src.manifest.name)."
                     }
                 } else {
+                    guard isCurrent() else { return }
                     self.pages = []
                     self.errorMessage = "Source not found."
                 }
             } catch {
+                guard isCurrent() else { return }
                 self.pages = []
                 self.errorMessage = error.localizedDescription
             }
@@ -257,12 +280,22 @@ public struct ReaderContainerView: View {
                        mangaId: mangaId,
                        syncId: TrackerServiceType.aniList.rawValue
                    ) {
-                    try? await AniListClient.shared.updateProgress(
-                        mediaId: track.remoteId,
-                        chapterProgress: Int(chapter.chapterNumber),
-                        status: track.status,
-                        score: track.score
-                    )
+                    let progress = max(track.lastChapterRead, chapter.chapterNumber)
+                    do {
+                        try await AniListClient.shared.updateProgress(
+                            mediaId: track.remoteId,
+                            chapterProgress: Int(progress),
+                            status: track.status,
+                            score: track.score
+                        )
+                        // Keep the locally linked track in step so the detail screen and manual
+                        // sync show the same progress that was pushed to AniList.
+                        var updated = track
+                        updated.lastChapterRead = progress
+                        _ = try? await trackRepo.upsertTrack(updated)
+                    } catch {
+                        print("[Reader] AniList progress sync failed: \(error)")
+                    }
                 }
             }
         }

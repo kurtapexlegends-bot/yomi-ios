@@ -20,11 +20,11 @@ public extension View {
         #endif
     }
 
-    /// Hides the navigation bar on iOS. The macOS test build keeps its native toolbar.
+    /// Hides or shows the navigation bar on iOS. The macOS test build keeps its native toolbar.
     @ViewBuilder
-    func yomiNavigationBarHidden() -> some View {
+    func yomiNavigationBarHidden(_ hidden: Bool = true) -> some View {
         #if os(iOS)
-        toolbar(.hidden, for: .navigationBar)
+        toolbar(hidden ? .hidden : .visible, for: .navigationBar)
         #else
         self
         #endif

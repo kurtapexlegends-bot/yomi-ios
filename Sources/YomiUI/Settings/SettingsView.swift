@@ -15,6 +15,7 @@ public struct SettingsView: View {
     @AppStorage("yomi.reader.autocrop") private var isAutocropEnabled: Bool = false
     @AppStorage("yomi.reader.invert") private var isInvertColorsEnabled: Bool = false
     @AppStorage("yomi.reader.tapZones") private var tapZoneRaw: Int = TapZoneLayout.leftRight.rawValue
+    @AppStorage("yomi.reader.brightness") private var readerBrightness: Double = 1.0
     @AppStorage("yomi.download.wifiOnly") private var downloadOnlyOnWifi: Bool = true
     @AppStorage("yomi.download.autoNext") private var autoDownloadNextChapters: Bool = false
     @AppStorage("yomi.library.layout") private var libraryLayout: String = "grid"
@@ -238,6 +239,23 @@ public struct SettingsView: View {
             toggleRow(icon: "crop", tint: YomiTheme.success, title: "Autocrop borders", isOn: $isAutocropEnabled)
             divider
             toggleRow(icon: "circle.righthalf.filled", tint: YomiTheme.accentStrong, title: "Invert colors", isOn: $isInvertColorsEnabled)
+            divider
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 12) {
+                    settingsIcon("sun.max.fill", tint: YomiTheme.warning)
+                    Text("Reader brightness")
+                        .font(YomiFont.body.weight(.semibold))
+                        .foregroundStyle(YomiTheme.textPrimary)
+                    Spacer()
+                    Text("\(Int(readerBrightness * 100))%")
+                        .font(YomiFont.number)
+                        .foregroundStyle(YomiTheme.textSecondary)
+                }
+                Slider(value: $readerBrightness, in: 0.1...1.0)
+                    .tint(YomiTheme.accent)
+                    .padding(.leading, 42)
+            }
+            .padding(.vertical, 8)
         }
     }
 
