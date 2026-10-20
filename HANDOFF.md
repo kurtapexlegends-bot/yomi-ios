@@ -5,11 +5,40 @@ Last updated: 2026-10-20
 ## Where things stand
 
 - Repo: `C:\SIDEPROJECTS\yomi-ios`, branch `main`
-- Current app & CI commit: `389d3b5` (`fix(mangakakalot): fix fragment queryAttr in HTMLBridge, add batch getPageList & target search parser`)
-- Latest CI for `389d3b5`: **green (success)**, run `39435030829` (15m 16s)
-- Latest IPA: `C:\Users\acost\Desktop\Yomi.ipa` and `C:\Users\acost\Desktop\Yomi-389d3b5.ipa`
-- Verified Simulator Smoke: `com.yomiapp.reader` launched with zero crashes.
+- Current app & CI commit: `6ae498d` (`fix(scraper): add multi-engine scrapers, fix mangakakalot chapter retry & glassmorphic reader hud`)
+- Latest CI for `6ae498d`: **green (success)**, run `39446863667` (20m 10s)
+- Latest IPA on Desktop: `C:\Users\acost\Desktop\Yomi.ipa` and `C:\Users\acost\Desktop\Yomi-6ae498d.ipa`
+- Verified Simulator Smoke: `com.yomiapp.reader` launched with zero crashes (`01-library-glassmorphic.png`).
 - Working tree: clean
+- Past version cleanup: Old redundant IPAs deleted from Desktop (`Yomi-c9f96ba.ipa`, `Yomi-389d3b5.ipa`), leaving only the newest verified `Yomi-6ae498d.ipa` and `Yomi.ipa`. Removed 273MB `.ci-artifacts/`.
+
+## Key Upgrades in 6ae498d & Multi-Engine / Chapter Retry Resolution
+
+- **MangaKakalot Chapter "Always Retry" Bug Resolved (Path Canonicalization & 404 Prevention)**:
+  - **Root Cause**: When opening a chapter on MangaKakalot, SQLite or existing user history had stored chapter URLs containing `/chapter/{slug}/{chapter-slug}` or `https://www.mangakakalot.gg/manga/...`. When normalized to the non-challenged mirror `mangakakalove.com`, retaining the `/chapter/` path triggered an immediate **HTTP 404 Not Found** from the server (on `mangakakalove.com`, all reader endpoints follow the `/manga/{slug}/{chapter-slug}` schema). Consequently, `getPageList` returned 0 images, throwing an error in `ReaderContainerView.swift`, triggering `emptyPageContent` with the "Retry" button. Furthermore, relative `/images/loadingimg.gif` and SVG icons polluted image lists.
+  - **Fix**:
+    1. In `NetworkBridge.swift`: Updated `normalizeURLString` and host canonicalization to automatically map `/chapter/` to `/manga/` for all MangaKakalot/Love domains.
+    2. In `ReaderContainerView.swift`: Added pre-fetch URL sanitization in `loadPages()` so historical chapter links from SQLite database are automatically canonicalized before requesting pages from the extension.
+    3. In `MangaKakalotScraper.swift`: Sanitized incoming URLs in `getPageList`, filtered out loading GIF animations and SVGs, and guaranteed `Referer: https://www.mangakakalove.com/` on all extracted page items.
+    4. In `JSExtension.swift`: Added explicit Referer mapping for `2xstorage`, `waitst`, and `mangakakalove`.
+
+- **Multi-Engine Scraper Architecture ("Other Extensions Don't Work" Fixed)**:
+  - **Root Cause**: Community extensions installed from the Keiyoushi catalog (e.g. Asura Scans, Reaper Scans, Flame Comics, ManhwaClan, etc.) ship Android binaries, meaning `scriptUrl` is not a JavaScript file. `RepoManager.swift` fell back to `generateGenericScript`, which had hardcoded MangaPill selectors and endpoints (`/mangas/new?page=...`). Scanlator websites do not have `/mangas/new`, returning 404s or empty HTML, causing all installed community extensions to fail with "No Titles Found".
+  - **Fix**:
+    1. Modularized `ScraperScriptGenerator.swift` into a clean multi-engine dispatcher (< 50 lines).
+    2. Created `MadaraScraper.swift` (223 lines) supporting modern scanlator sites (Asura Scans, Flame Comics, Reaper Scans, ManhwaClan, etc.). Parses homepage cards (`a[href*='/comics/'], a[href*='/series/'], a[href*='/manga/'], .page-item-detail`), handles search endpoints (`?s=${query}&post_type=wp-manga`), extracts chapter links, and captures reader images from `.page-break img, #readerarea img` with direct CDN regex fallbacks.
+    3. Created `UniversalScraper.swift` (195 lines) providing dynamic multi-candidate homepage discovery, multi-pattern search, and reader fallback.
+    4. Created `MangaKakalotScraper.swift` (305 lines) dedicated to MangaKakalot/Love.
+    5. Added unit tests in `MultiEngineScraperTests.swift` validating archetype dispatching and DOM parsing.
+
+- **Apple-Grade Glassmorphism & Reader HUD Improvements**:
+  - Upgraded `GlassCardModifier` in `YomiTheme.swift` with `.background(.ultraThinMaterial)`, subtle 0.5pt hairline border strokes (`borderStrong`), and soft ambient shadows.
+  - Upgraded `ReaderOverlayView.swift` top and bottom bars with `ultraThinMaterial` frosted glass overlays and hairline dividers.
+  - Added live reading progress percentage indicator (`X / Y (Z%)`) alongside the interactive scrubber.
+
+- **Storage & Past Versions Cleanup**:
+  - Deleted obsolete IPAs from Desktop (`Yomi-c9f96ba.ipa`, `Yomi-389d3b5.ipa`), keeping only the active `Yomi-6ae498d.ipa` and `Yomi.ipa`.
+  - Cleared 273MB of obsolete `.ci-artifacts/` from the repository root.
 
 ## Key Upgrades in 389d3b5 & Chapter Pages / Search Resolution
 
