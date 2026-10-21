@@ -99,6 +99,8 @@
 ---
 
 ## 7. Developer & Agent Operational Rules
+- **Direct User-Intent Alignment & Anti-Overengineering:** Strictly follow user instructions. Do NOT overengineer, invent bloated abstractions, or wander into unprompted sidequests. Keep solutions lean, practical, and focused directly on the user's explicit request.
+- **Zero Half-Assed "Fixed" Claims:** NEVER return a superficial, lazy, or false "I fixed it" claim when the issue is not actually fixed. Do not band-aid symptoms or assume something works without tracing the full execution path. Dig into the root cause, fix it completely, and verify it deterministically end-to-end before declaring completion.
 - **Inspect State First:** Never speculate or make blind edits. Inspect source files and verify line numbers before making modifications.
 - **No Unsolicited Dependencies:** Never add SPM packages or Cocoapods without explicit instruction.
 - **No Destructive Git Commands:** Never execute `git reset --hard`, `git push --force`, or unprompted file wipes.
