@@ -167,7 +167,7 @@ enum UniversalScraper {
                     seen.add(chUrl);
 
                     const name = __yomi_text(el, "") || `Chapter ${links.length - idx}`;
-                    const numMatch = chUrl.match(/\/c(\d+(?:\.\d+)?)/) || name.match(/(?:chapter|ch\.?)\s*(\d+(?:\.\d+)?)/i);
+                    const numMatch = chUrl.match(/\\/c(\\d+(?:\\.\\d+)?)/) || name.match(/(?:chapter|ch\\.?)\\s*(\\d+(?:\\.\\d+)?)/i);
                     const chNum = numMatch ? parseFloat(numMatch[1]) : (links.length - idx);
 
                     chapters.push({
@@ -204,7 +204,7 @@ enum UniversalScraper {
                 }
 
                 if (urls.length === 0) {
-                    const regex = /<img[^>]+(?:data-src|src)=["'](https?:\/\/[^"']+)["'][^>]*>/gi;
+                    const regex = /<img[^>]+(?:data-src|src)=["'](https?:\\/\\/[^"']+)["'][^>]*>/gi;
                     let m;
                     while ((m = regex.exec(html)) !== null) {
                         const link = m[1];
@@ -216,12 +216,12 @@ enum UniversalScraper {
 
                 // JS array fallback (e.g. thzq, ytaw, ts_reader, pages)
                 if (urls.length === 0) {
-                    const scriptArrays = html.match(/(?:thzq|ytaw|ts_reader_control\.buildWebUI|images|pages)\s*[:=]\s*(\[[^;]+\])/i);
+                    const scriptArrays = html.match(/(?:thzq|ytaw|ts_reader_control\\.buildWebUI|images|pages)\\s*[:=]\\s*(\\[[^;]+\\])/i);
                     if (scriptArrays && scriptArrays[1]) {
-                        const found = scriptArrays[1].match(/https?:\/\/[^\s"'<>,\\\\]+/g);
+                        const found = scriptArrays[1].match(/https?:\\/\\/[^\\s"'<>,\\\\]+/g);
                         if (found) {
                             for (const u of found) {
-                                const clean = u.replace(/\\/g, '');
+                                const clean = u.replace(/\\\\/g, '');
                                 if (!urls.includes(clean) && !clean.includes("logo") && !clean.endsWith(".gif") && !clean.endsWith(".svg")) {
                                     urls.push(clean);
                                 }
