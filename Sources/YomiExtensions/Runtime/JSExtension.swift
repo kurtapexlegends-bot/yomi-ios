@@ -239,15 +239,20 @@ public final class JSExtension: SourceProtocol, @unchecked Sendable {
             try await self.executeAsync(script: script)
         }
 
-        guard let array = result.toArray() as? [[String: Any]] else {
-            return []
+        let rawArray = result.toArray()
+        if let dictArray = rawArray as? [[String: Any]] {
+            return dictArray.enumerated().compactMap { idx, item in
+                guard let url = item["url"] as? String, !url.isEmpty, url != "#" else { return nil }
+                let headers = item["headers"] as? [String: String] ?? [:]
+                return ReaderPage(index: idx, url: url, imageUrl: url, headers: headers)
+            }
+        } else if let stringArray = rawArray as? [String] {
+            return stringArray.enumerated().compactMap { idx, url in
+                guard !url.isEmpty, url != "#" else { return nil }
+                return ReaderPage(index: idx, url: url, imageUrl: url, headers: [:])
+            }
         }
-
-        return array.enumerated().compactMap { idx, item in
-            guard let url = item["url"] as? String else { return nil }
-            let headers = item["headers"] as? [String: String] ?? [:]
-            return ReaderPage(index: idx, url: url, imageUrl: url, headers: headers)
-        }
+        return []
     }
 
     public func getImageData(page: ReaderPage) async throws -> Data {
@@ -268,6 +273,8 @@ public final class JSExtension: SourceProtocol, @unchecked Sendable {
             request.setValue("https://asurascans.com/", forHTTPHeaderField: "Referer")
         } else if host.contains("flamecomics") {
             request.setValue("https://flamecomics.xyz/", forHTTPHeaderField: "Referer")
+        } else if host.contains("mangakatana") {
+            request.setValue("https://mangakatana.com/", forHTTPHeaderField: "Referer")
         } else {
             var base = manifest.baseUrl
             if !base.hasSuffix("/") { base += "/" }

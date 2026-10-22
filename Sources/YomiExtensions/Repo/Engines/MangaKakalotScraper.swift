@@ -264,10 +264,7 @@ enum MangaKakalotScraper {
 
             getPageList: async function(url) {
                 let target = (url || "");
-                target = target.replace(/:\\/\\/www\\.mangakakalot\\.gg/g, "://www.mangakakalove.com")
-                               .replace(/:\\/\\/mangakakalot\\.gg/g, "://www.mangakakalove.com")
-                               .replace(/:\\/\\/www\\.mangakakalot\\.com/g, "://www.mangakakalove.com")
-                               .replace(/:\\/\\/mangakakalot\\.com/g, "://www.mangakakalove.com");
+                target = target.replace(/:\\/\\/(?:www\\.)?(?:mangakakalot\\.(?:com|gg|tv)|manganato\\.com|chapmanganato\\.to|natomanga\\.com)/g, "://www.mangakakalove.com");
                 if (target.includes("mangakakalove.com/chapter/")) {
                     target = target.replace("mangakakalove.com/chapter/", "mangakakalove.com/manga/");
                 }
@@ -315,10 +312,8 @@ enum MangaKakalotScraper {
                     let m;
                     while ((m = regex.exec(html)) !== null) {
                         const link = m[1];
-                        if ((link.includes("2xstorage") || link.includes("waitst") || link.includes("/chapter")) && !urls.includes(link)) {
-                            if (!link.includes("loadingimg") && !link.endsWith(".gif") && !link.endsWith(".svg")) {
-                                urls.push(link);
-                            }
+                        if (!urls.includes(link) && !link.includes("loadingimg") && !link.includes("logo") && !link.includes("avatar") && !link.endsWith(".gif") && !link.endsWith(".svg")) {
+                            urls.push(link);
                         }
                     }
                 }

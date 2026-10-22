@@ -23,7 +23,15 @@ enum ScraperScriptGenerator {
             return MangaKakalotScraper.generateScript(baseUrl: "https://www.mangakakalove.com")
         }
 
-        // 2. Madara / Scanlator / WordPress archetype (Asura, Flame, Reaper, ManhwaClan, etc.)
+        // 2. MangaKatana archetype
+        let isMangaKatana = baseLower.contains("mangakatana") ||
+                            nameLower.contains("mangakatana") ||
+                            pkgLower.contains("mangakatana")
+        if isMangaKatana {
+            return MangaKatanaScraper.generateScript(baseUrl: "https://mangakatana.com")
+        }
+
+        // 3. Madara / Scanlator / WordPress archetype (Asura, Flame, Reaper, ManhwaClan, etc.)
         let isMadara = baseLower.contains("asura") ||
                        nameLower.contains("asura") ||
                        pkgLower.contains("asura") ||
@@ -45,7 +53,7 @@ enum ScraperScriptGenerator {
             return MadaraScraper.generateScript(baseUrl: baseUrl)
         }
 
-        // 3. Smart Universal HTML Engine
+        // 4. Smart Universal HTML Engine
         if baseUrl.isEmpty { baseUrl = "https://mangapill.com" }
         return UniversalScraper.generateScript(baseUrl: baseUrl)
     }

@@ -56,7 +56,13 @@ public final class ReaderCollectionViewCell: UICollectionViewCell {
 
         // Retry button
         retryButton.setTitle("Tap to Retry", for: .normal)
-        retryButton.setTitleColor(.systemBlue, for: .normal)
+        retryButton.setTitleColor(.white, for: .normal)
+        retryButton.titleLabel?.font = .systemFont(ofSize: 13, weight: .semibold)
+        retryButton.backgroundColor = UIColor.white.withAlphaComponent(0.14)
+        retryButton.layer.cornerRadius = 16
+        retryButton.layer.borderWidth = 1
+        retryButton.layer.borderColor = UIColor.white.withAlphaComponent(0.20).cgColor
+        retryButton.clipsToBounds = true
         retryButton.isHidden = true
         retryButton.addTarget(self, action: #selector(didTapRetry), for: .touchUpInside)
         contentView.addSubview(retryButton)

@@ -50,21 +50,34 @@ public final class ExtensionManager: @unchecked Sendable {
                         continue
                     }
 
-                    // Self-heal MangaKakalot scrapers to include modern DOM selectors & chapters API
-                    let isMangaKakalot = manifest.baseUrl.lowercased().contains("mangakakalot") || manifest.name.lowercased().contains("mangakakalot")
-                    if isMangaKakalot {
-                        var updatedManifest = manifest
+                    var updatedManifest = manifest
+                    let nameLower = manifest.name.lowercased()
+                    let baseLower = manifest.baseUrl.lowercased()
+
+                    // Canonicalize mirror domains
+                    if baseLower.contains("mangakakalot") || nameLower.contains("mangakakalot") {
                         if updatedManifest.baseUrl != "https://www.mangakakalove.com" {
                             updatedManifest.baseUrl = "https://www.mangakakalove.com"
                             if let updatedData = try? JSONEncoder().encode(updatedManifest) {
                                 try? updatedData.write(to: metaURL, options: .atomic)
                             }
                         }
+                    } else if baseLower.contains("mangakatana") || nameLower.contains("mangakatana") {
+                        if updatedManifest.baseUrl != "https://mangakatana.com" {
+                            updatedManifest.baseUrl = "https://mangakatana.com"
+                            if let updatedData = try? JSONEncoder().encode(updatedManifest) {
+                                try? updatedData.write(to: metaURL, options: .atomic)
+                            }
+                        }
+                    }
+
+                    // Self-heal and auto-upgrade generated scrapers to latest engine definitions
+                    if scriptContent.contains("const Extension =") || scriptContent.contains("const BASE_URL =") {
                         let pkg = RemoteExtensionPackage(
                             id: updatedManifest.id,
                             name: updatedManifest.name,
                             lang: updatedManifest.lang,
-                            baseUrl: "https://www.mangakakalove.com",
+                            baseUrl: updatedManifest.baseUrl,
                             iconUrl: updatedManifest.iconUrl,
                             version: updatedManifest.version,
                             scriptUrl: ""
@@ -74,12 +87,9 @@ public final class ExtensionManager: @unchecked Sendable {
                             try? freshScript.write(to: jsURL, atomically: true, encoding: .utf8)
                             scriptContent = freshScript
                         }
-                        let jsExtension = JSExtension(manifest: updatedManifest, scriptContent: scriptContent)
-                        sources.append(jsExtension)
-                        continue
                     }
 
-                    let jsExtension = JSExtension(manifest: manifest, scriptContent: scriptContent)
+                    let jsExtension = JSExtension(manifest: updatedManifest, scriptContent: scriptContent)
                     sources.append(jsExtension)
                 }
             }

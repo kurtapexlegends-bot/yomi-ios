@@ -110,4 +110,71 @@ final class MultiEngineScraperTests: XCTestCase {
         XCTAssertEqual(first["url"] as? String, "https://genericmanga.com/manga/one-punch-man")
         XCTAssertEqual(first["thumbnailUrl"] as? String, "https://genericmanga.com/opm.jpg")
     }
+
+    func testMangaKatanaArchetypeAndParsing() {
+        let repoManager = RepoManager.shared
+        let katanaPkg = RemoteExtensionPackage(
+            id: 10, name: "MangaKatana", lang: "en", baseUrl: "https://mangakatana.com", scriptUrl: ""
+        )
+        let script = repoManager.generateScraperScript(for: katanaPkg)
+        XCTAssertTrue(script.contains("mangakatana.com"))
+        XCTAssertTrue(script.contains("thzq"))
+
+        guard let context = JSContext() else {
+            XCTFail("Failed to create JSContext")
+            return
+        }
+        HTMLBridge.inject(into: context)
+        context.evaluateScript(script)
+
+        // Test Manga List
+        let listHtml = """
+        <div id="book_list">
+            <div class="item">
+                <div class="wrap_img">
+                    <a href="https://mangakatana.com/manga/batsu-hare.26489">
+                        <img src="https://mangakatana.com/imgs/cover/batsu.webp" alt="[Cover]">
+                    </a>
+                </div>
+                <h3 class="title">
+                    <a href="https://mangakatana.com/manga/batsu-hare.26489">Batsu-Hare</a>
+                </h3>
+            </div>
+        </div>
+        """
+        context.setObject(listHtml, forKeyedSubscript: "__katanaListHtml" as NSString)
+        let listResult = context.evaluateScript("Extension.parseMangaList(__katanaListHtml)")
+        guard let listDict = listResult?.toDictionary() as? [String: Any],
+              let mangas = listDict["mangas"] as? [[String: Any]],
+              let firstManga = mangas.first else {
+            XCTFail("Failed to parse MangaKatana manga list")
+            return
+        }
+        XCTAssertEqual(firstManga["title"] as? String, "Batsu-Hare")
+        XCTAssertEqual(firstManga["url"] as? String, "https://mangakatana.com/manga/batsu-hare.26489")
+        XCTAssertEqual(firstManga["thumbnailUrl"] as? String, "https://mangakatana.com/imgs/cover/batsu.webp")
+
+        // Test Search Parsing
+        let searchHtml = """
+        <div class="item" data-id="1205">
+            <div class="d-cell media">
+                <div class="wrap_img"><a href="https://mangakatana.com/manga/naruto.1205" class="title"><img src="https://mangakatana.com/imgs/cover/naruto.webp" alt="[Cover]"/></a></div>
+            </div>
+            <div class="d-cell text">
+                <a href="https://mangakatana.com/manga/naruto.1205" class="title">Naruto</a>
+            </div>
+        </div>
+        """
+        context.setObject(searchHtml, forKeyedSubscript: "__katanaSearchHtml" as NSString)
+        let searchResult = context.evaluateScript("Extension.parseSearchResults(__katanaSearchHtml)")
+        guard let searchDict = searchResult?.toDictionary() as? [String: Any],
+              let searchMangas = searchDict["mangas"] as? [[String: Any]],
+              let firstSearch = searchMangas.first else {
+            XCTFail("Failed to parse MangaKatana search results")
+            return
+        }
+        XCTAssertEqual(firstSearch["title"] as? String, "Naruto")
+        XCTAssertEqual(firstSearch["url"] as? String, "https://mangakatana.com/manga/naruto.1205")
+        XCTAssertEqual(firstSearch["thumbnailUrl"] as? String, "https://mangakatana.com/imgs/cover/naruto.webp")
+    }
 }

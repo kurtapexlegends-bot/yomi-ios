@@ -123,13 +123,20 @@ public struct ReaderContainerView: View {
             Color.black.ignoresSafeArea()
 
             if isLoading {
-                ProgressView("Loading Chapter...")
-                    .foregroundStyle(.white)
+                ReaderLoadingStateView(chapterTitle: chapter.displayTitle)
             } else if !pages.isEmpty {
                 readerSurface
                 readerOverlay
             } else {
-                emptyPageContent
+                ReaderEmptyStateView(
+                    chapterTitle: chapter.displayTitle,
+                    errorMessage: errorMessage,
+                    isMangaDexSource: manga.sourceId == MangaDexSource.sourceId,
+                    onRetry: { loadPages() },
+                    onNextChapter: { goToNextChapter() },
+                    onSwitchSource: { switchSourceToMangaPill() },
+                    onClose: { dismiss() }
+                )
             }
         }
     }
@@ -197,64 +204,7 @@ public struct ReaderContainerView: View {
         )
     }
 
-    private var emptyPageContent: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "photo.on.rectangle.angled")
-                .font(.system(size: 48))
-                .foregroundStyle(YomiTheme.accent)
 
-            Text("No Pages Available")
-                .font(.headline.bold())
-                .foregroundStyle(.white)
-
-            Text(errorMessage ?? "The source does not host readable pages for \(chapter.displayTitle). It may be an external release or temporarily offline.")
-                .font(.caption)
-                .foregroundStyle(YomiTheme.textSecondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-
-            emptyPageActions
-
-            Button("Close") { dismiss() }
-                .font(.subheadline)
-                .foregroundStyle(YomiTheme.textSecondary)
-                .padding(.top, 4)
-        }
-        .padding(24)
-    }
-
-    private var emptyPageActions: some View {
-        HStack(spacing: 12) {
-            Button {
-                loadPages()
-            } label: {
-                Label("Retry", systemImage: "arrow.clockwise")
-                    .font(.subheadline.bold())
-            }
-            .buttonStyle(.bordered)
-            .tint(YomiTheme.accent)
-
-            if manga.sourceId == MangaDexSource.sourceId {
-                Button {
-                    switchSourceToMangaPill()
-                } label: {
-                    Label("Read on MangaPill", systemImage: "arrow.triangle.swap")
-                        .font(.subheadline.bold())
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.green)
-            } else {
-                Button {
-                    goToNextChapter()
-                } label: {
-                    Label("Next Chapter", systemImage: "forward.fill")
-                        .font(.subheadline.bold())
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(YomiTheme.accent)
-            }
-        }
-    }
 
     private func loadPages() {
         pageLoadTask?.cancel()

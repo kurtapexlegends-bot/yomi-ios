@@ -46,6 +46,8 @@ public enum NetworkBridge {
                     request.setValue("https://asurascans.com/", forHTTPHeaderField: "Referer")
                 } else if host.contains("flamecomics") {
                     request.setValue("https://flamecomics.xyz/", forHTTPHeaderField: "Referer")
+                } else if host.contains("mangakatana") {
+                    request.setValue("https://mangakatana.com/", forHTTPHeaderField: "Referer")
                 } else if let scheme = url.scheme, !host.isEmpty {
                     request.setValue("\(scheme)://\(host)/", forHTTPHeaderField: "Referer")
                 }

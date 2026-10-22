@@ -153,7 +153,7 @@ enum UniversalScraper {
                 const resp = await fetch(fullUrl, { headers: { "Referer": BASE_URL + "/" } });
                 const html = await resp.text();
 
-                const links = __yomi_selectAll(html, "a[href*='/chapters/'], a[href*='/chapter-'], a[href*='/ch-'], a[href*='/chapter/'], .chapter-list a, .list-chapters a");
+                const links = __yomi_selectAll(html, "a[href*='/chapters/'], a[href*='/chapter-'], a[href*='/ch-'], a[href*='/chapter/'], .chapter-list a, .list-chapters a, .chapters .chapter a, .uk-table tr .chapter a, a[href*='/c']");
                 const chapters = [];
                 const seen = new Set();
 
@@ -167,7 +167,7 @@ enum UniversalScraper {
                     seen.add(chUrl);
 
                     const name = __yomi_text(el, "") || `Chapter ${links.length - idx}`;
-                    const numMatch = name.match(/(?:chapter|ch\\.?)\\s*(\\d+(?:\\.\\d+)?)/i);
+                    const numMatch = chUrl.match(/\/c(\d+(?:\.\d+)?)/) || name.match(/(?:chapter|ch\.?)\s*(\d+(?:\.\d+)?)/i);
                     const chNum = numMatch ? parseFloat(numMatch[1]) : (links.length - idx);
 
                     chapters.push({
@@ -196,7 +196,7 @@ enum UniversalScraper {
                                    __yomi_attr(img, "img", "src") ||
                                    __yomi_attr(img, "", "data-src") ||
                                    __yomi_attr(img, "", "src");
-                    if (pageUrl && pageUrl.length > 0 && !urls.includes(pageUrl)) {
+                    if (pageUrl && pageUrl.length > 1 && pageUrl !== "#" && pageUrl.startsWith("http") && !urls.includes(pageUrl)) {
                         if (!pageUrl.includes("logo") && !pageUrl.includes("banner") && !pageUrl.endsWith(".gif") && !pageUrl.endsWith(".svg")) {
                             urls.push(pageUrl);
                         }
@@ -204,12 +204,28 @@ enum UniversalScraper {
                 }
 
                 if (urls.length === 0) {
-                    const regex = /<img[^>]+(?:data-src|src)=["'](https?:\\/\\/[^"']+)["'][^>]*>/gi;
+                    const regex = /<img[^>]+(?:data-src|src)=["'](https?:\/\/[^"']+)["'][^>]*>/gi;
                     let m;
                     while ((m = regex.exec(html)) !== null) {
                         const link = m[1];
                         if (!urls.includes(link) && !link.includes("logo") && !link.includes("banner") && !link.endsWith(".gif") && !link.endsWith(".svg")) {
                             urls.push(link);
+                        }
+                    }
+                }
+
+                // JS array fallback (e.g. thzq, ytaw, ts_reader, pages)
+                if (urls.length === 0) {
+                    const scriptArrays = html.match(/(?:thzq|ytaw|ts_reader_control\.buildWebUI|images|pages)\s*[:=]\s*(\[[^;]+\])/i);
+                    if (scriptArrays && scriptArrays[1]) {
+                        const found = scriptArrays[1].match(/https?:\/\/[^\s"'<>,\\\\]+/g);
+                        if (found) {
+                            for (const u of found) {
+                                const clean = u.replace(/\\/g, '');
+                                if (!urls.includes(clean) && !clean.includes("logo") && !clean.endsWith(".gif") && !clean.endsWith(".svg")) {
+                                    urls.push(clean);
+                                }
+                            }
                         }
                     }
                 }
