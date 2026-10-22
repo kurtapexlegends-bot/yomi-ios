@@ -83,16 +83,17 @@ enum MangaKatanaScraper {
                 const seen = new Set();
 
                 for (const item of items) {
-                    let link = __yomi_attr(item, "a.title", "href") ||
+                    let link = __yomi_attr(item, ".text a.title, .d-cell.text a.title, a.title", "href") ||
                                __yomi_attr(item, "a[href*='/manga/']", "href");
-                    if (!link || link.includes("/chapter") || link.includes("/c") || seen.has(link)) continue;
+                    if (!link || link.includes("/chapter") || link.match(/\\/c\\d+/) || seen.has(link)) continue;
                     if (!link.startsWith("http")) {
                         link = `${BASE_URL}${link.startsWith('/') ? '' : '/'}${link}`;
                     }
                     seen.add(link);
 
-                    let title = __yomi_text(item, "a.title") ||
-                                __yomi_attr(item, "img", "alt") || "";
+                    let title = __yomi_text(item, ".d-cell.text a.title, .text a.title, .text a, h3.title a") ||
+                                __yomi_text(item, "a.title") ||
+                                __yomi_attr(item, "a.title", "title") || "";
                     title = title.replace(/\\[Cover\\]/gi, "").trim();
                     if (!title) continue;
 
